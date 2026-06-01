@@ -1,90 +1,15 @@
 # Nerd Font Installer
 
-`nerdfont-install` is a small, script-friendly Go CLI for installing selected
-[Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) from release archives.
+Install your favorite [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts)
+with one small command.
 
-It is built for repeatable workstation setup: keep the font list in YAML, pin a
-release when you need reproducibility, preview the work with `--dry-run`, and
-install each family into a predictable directory.
+`nerdfont-install` is for people who set up terminals, editors, dotfiles, new
+laptops, remote dev boxes, or fresh Linux/macOS machines and do not want to
+manually download font archives every time.
 
-## Why This Exists
-
-Manual font installation is easy once and annoying forever. Bootstrap scripts,
-dotfiles, and fresh machines need something more boring:
-
-- a declarative list of font families
-- a clear destination directory
-- optional release pinning
-- an interactive picker when no config exists
-- no prompts when config is present
-- useful dry-run output
-- optional `fc-cache` refresh on Linux
-
-That is the whole job of this tool.
-
-## Features
-
-- Downloads Nerd Font `.zip` archives from GitHub releases.
-- Supports `latest` or a pinned release tag such as `v3.4.0`.
-- Discovers config from home, XDG config, or the binary directory.
-- Starts a Charm Bracelet TUI when no config is available.
-- Lists Nerd Fonts releases and selectable font archive names in interactive mode.
-- Extracts only font files: `.ttf`, `.otf`, and `.ttc`.
-- Installs each family into its own directory.
-- Expands `~` in destination paths.
-- Skips `fc-cache` cleanly when it is not installed.
-- Writes diagnostics to stderr and normal progress to stdout.
-- Accepts `Ctrl+C` through context cancellation.
-
-## Installation
-
-Build from source:
-
-```bash
-go build -trimpath -o bin/nerdfont-install ./cmd/nerdfont-install
-```
-
-Check the binary:
-
-```bash
-./bin/nerdfont-install --version
-```
-
-The project currently targets Go 1.26.
-
-## Quick Start
-
-Create a config file:
-
-```bash
-mkdir -p ~/.config/nerd-config-installer
-cp config.example.yaml ~/.config/nerd-config-installer/config.yaml
-```
-
-Preview the install:
-
-```bash
-./bin/nerdfont-install --dry-run
-```
-
-Install the fonts:
-
-```bash
-./bin/nerdfont-install
-```
-
-Or run without any config and use the interactive TUI:
-
-```bash
-./bin/nerdfont-install
-```
-
-The TUI fetches Nerd Fonts releases, lets you select a release, then lets you
-select one or more font families to install.
-
-## Configuration
-
-Configuration is YAML:
+Instead of clicking through GitHub releases, unzipping files, moving fonts into
+the right folder, and refreshing the font cache by hand, you keep a short YAML
+file:
 
 ```yaml
 release: latest
@@ -97,65 +22,366 @@ families:
   - Meslo
 ```
 
-### Fields
+Then run:
 
-| Field | Required | Default | Description |
-| --- | --- | --- | --- |
-| `release` | No | `latest` | Nerd Fonts release source. Use `latest` or a tag such as `v3.4.0`. |
-| `destination` | No | `~/.local/share/fonts/NerdFonts` | Root directory where font family directories are created. |
-| `refresh_font_cache` | No | `false` | Runs `fc-cache -f <destination>` after installation when enabled and available. |
-| `families` | Yes | none | Nerd Font archive names to install. Names must match release asset names. |
-
-### Discovery Order
-
-When `--config` is not provided, the CLI looks for config in this order:
-
-1. `~/.nerd-config.yaml`
-2. `~/.config/nerd-config-installer/config.yaml`
-3. `config.yaml` next to the runnable binary
-4. `nerd-config.yaml` next to the runnable binary
-
-If none of those files exists and the process is attached to a terminal,
-interactive mode starts automatically. In non-interactive environments, pass
-`--config` explicitly.
-
-Family names map directly to Nerd Fonts release assets. For example,
-`JetBrainsMono` with `latest` downloads:
-
-```text
-https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip
+```bash
+nerdfont-install
 ```
 
-With a pinned release:
+That is it.
+
+## Why You Might Want This
+
+Nerd Fonts are great. Installing them repeatedly is not.
+
+This tool is useful when you:
+
+- want terminal icons and glyphs to work in Starship, Neovim, tmux, lazygit,
+  eza, yazi, WezTerm, Alacritty, Kitty, Ghostty, or VS Code
+- rebuild machines often
+- maintain dotfiles
+- bootstrap dev environments
+- want the same fonts on every workstation
+- want a repeatable setup script instead of manual clicking
+- want to preview exactly what will be installed before writing files
+
+Manual install:
+
+1. Open the Nerd Fonts release page.
+2. Find the right font archive.
+3. Download it.
+4. Unzip it.
+5. Move only the font files.
+6. Put them in a font directory.
+7. Refresh the font cache.
+8. Repeat for every font.
+
+With `nerdfont-install`:
+
+```bash
+nerdfont-install --dry-run
+nerdfont-install
+```
+
+## What It Does
+
+- Downloads Nerd Font release archives from GitHub.
+- Installs only font files: `.ttf`, `.otf`, and `.ttc`.
+- Keeps each font family in its own folder.
+- Supports `latest` or pinned releases like `v3.4.0`.
+- Reads a simple YAML config.
+- Can discover your config automatically.
+- Has an interactive picker when you do not have a config yet.
+- Prints copy-paste-ready font family names for configs.
+- Supports dry-runs.
+- Refreshes `fc-cache` on Linux when requested.
+- Skips `fc-cache` safely if it is not installed.
+- Uses colorful CLI output and a Charm Bubble Tea TUI.
+
+## Quick Start for Beginners
+
+### 1. Get the Binary
+
+Download the latest release archive for your system from the GitHub releases
+page.
+
+Pick one:
+
+| System | Archive |
+| --- | --- |
+| Linux Intel/AMD | `nerdfont-install_latest_linux_amd64.tar.gz` |
+| Linux ARM64 | `nerdfont-install_latest_linux_arm64.tar.gz` |
+| macOS Intel | `nerdfont-install_latest_darwin_amd64.tar.gz` |
+| macOS Apple Silicon | `nerdfont-install_latest_darwin_arm64.tar.gz` |
+
+Extract it:
+
+```bash
+tar -xzf nerdfont-install_latest_linux_amd64.tar.gz
+```
+
+Move it somewhere on your `PATH`:
+
+```bash
+chmod +x nerdfont-install
+mkdir -p ~/.local/bin
+mv nerdfont-install ~/.local/bin/
+```
+
+Check it works:
+
+```bash
+nerdfont-install --version
+```
+
+If `~/.local/bin` is not on your `PATH`, add this to your shell config:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 2. Create a Config
+
+Create the config directory:
+
+```bash
+mkdir -p ~/.config/nerd-config-installer
+```
+
+Create the config file:
+
+```bash
+nano ~/.config/nerd-config-installer/config.yaml
+```
+
+Paste this:
 
 ```yaml
-release: v3.4.0
+release: latest
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
+families:
+  - JetBrainsMono
+  - Hack
+  - FiraCode
+```
+
+Save the file.
+
+### 3. Preview First
+
+Before installing, run a dry-run:
+
+```bash
+nerdfont-install --dry-run
+```
+
+This prints what would be downloaded and where it would go. It does not write
+font files.
+
+### 4. Install
+
+Run:
+
+```bash
+nerdfont-install
+```
+
+Now select the installed Nerd Font in your terminal or editor settings.
+
+## The Easiest Mode: Interactive Picker
+
+If you do not want to write YAML yet, just run:
+
+```bash
+nerdfont-install
+```
+
+When no config file is found, the app opens an interactive picker:
+
+1. Pick a Nerd Fonts release.
+2. Pick one or more font families.
+3. Press `enter`.
+4. The selected fonts install.
+
+Controls:
+
+| Key | Action |
+| --- | --- |
+| `up` / `down` | Move through releases or fonts |
+| `/` | Search/filter |
+| `enter` | Choose a release or confirm selected fonts |
+| `space` | Select or unselect a font |
+| `a` | Select all or clear all |
+| `b` / `esc` | Go back |
+| `q` / `ctrl+c` | Quit |
+
+## Copy-Paste Font Names Into Your Config
+
+Not sure what the exact family names are? Ask the tool:
+
+```bash
+nerdfont-install --font-names
+```
+
+It prints YAML you can paste directly into your config:
+
+```yaml
+# v3.4.0
+families:
+  - 0xProto
+  - 3270
+  - AdwaitaMono
+  - Agave
+  - AnonymousPro
+```
+
+For a pinned release, put the release in your config and run:
+
+```bash
+nerdfont-install --config ~/.config/nerd-config-installer/config.yaml --font-names
+```
+
+## Common Recipes
+
+### Install One Font
+
+```yaml
+release: latest
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
 families:
   - JetBrainsMono
 ```
 
-the download URL becomes:
+Run:
 
-```text
-https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/JetBrainsMono.zip
+```bash
+nerdfont-install --config fonts.yaml --dry-run
+nerdfont-install --config fonts.yaml
 ```
 
-## CLI Reference
+### Install a Good Terminal Font Set
+
+```yaml
+release: latest
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
+families:
+  - JetBrainsMono
+  - Hack
+  - FiraCode
+  - Meslo
+  - SymbolsOnly
+```
+
+### Pin a Release for Dotfiles
+
+Use this when you want the same result every time your setup script runs.
+
+```yaml
+release: v3.4.0
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
+families:
+  - JetBrainsMono
+  - Hack
+```
+
+### Install Into a Test Folder
+
+Use this if you want to inspect the files before touching your real font
+directory.
+
+```yaml
+release: latest
+destination: ./tmp/fonts
+refresh_font_cache: false
+families:
+  - Hack
+```
+
+Run:
+
+```bash
+nerdfont-install --config fonts.yaml
+```
+
+Files will appear under:
+
+```text
+./tmp/fonts/Hack/
+```
+
+### Use It in a Bootstrap Script
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p ~/.config/nerd-config-installer
+
+cat > ~/.config/nerd-config-installer/config.yaml <<'YAML'
+release: latest
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
+families:
+  - JetBrainsMono
+  - Hack
+  - FiraCode
+YAML
+
+nerdfont-install --dry-run
+nerdfont-install
+```
+
+This is useful in dotfiles, Ansible roles, install scripts, or fresh-machine
+setup scripts.
+
+## Configuration Reference
+
+Config is YAML.
+
+```yaml
+release: latest
+destination: ~/.local/share/fonts/NerdFonts
+refresh_font_cache: true
+families:
+  - JetBrainsMono
+  - Hack
+```
+
+| Field | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `release` | No | `latest` | Nerd Fonts release to use. Use `latest` or a tag like `v3.4.0`. |
+| `destination` | No | `~/.local/share/fonts/NerdFonts` | Root folder where fonts are installed. |
+| `refresh_font_cache` | No | `false` | Run `fc-cache -f <destination>` after installing. |
+| `families` | Yes | none | Font archive names without `.zip`. |
+
+Family names must be exact Nerd Font archive names. Use `--font-names` when in
+doubt.
+
+## Where Config Files Are Found
+
+When `--config` is not provided, the tool checks:
+
+1. `~/.nerd-config.yaml`
+2. `~/.config/nerd-config-installer/config.yaml`
+3. `config.yaml` next to the binary
+4. `nerd-config.yaml` next to the binary
+
+The recommended location is:
+
+```text
+~/.config/nerd-config-installer/config.yaml
+```
+
+## Command Reference
 
 ```text
 nerdfont-install [flags]
 ```
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--config` | none | YAML config file with release, destination, cache refresh, and families. When omitted, discovery runs first, then interactive mode. |
-| `--dry-run` | `false` | Print planned downloads and destinations without writing files. |
-| `--font-names` | `false` | Print YAML-ready font family names for the latest release, or for the release from `--config`, then exit. |
-| `--version` | `false` | Print build metadata and exit. |
+| Flag | What it does |
+| --- | --- |
+| `--config <path>` | Use a specific YAML config file. |
+| `--dry-run` | Show what would happen without installing. |
+| `--font-names` | Print YAML-ready font family names and exit. |
+| `--version` | Print version info and exit. |
+
+Examples:
+
+```bash
+nerdfont-install --dry-run
+nerdfont-install --config fonts.yaml
+nerdfont-install --config fonts.yaml --dry-run
+nerdfont-install --font-names
+nerdfont-install --version
+```
 
 ## Install Layout
 
-Given this config:
+Given:
 
 ```yaml
 destination: ~/.local/share/fonts/NerdFonts
@@ -164,7 +390,7 @@ families:
   - Hack
 ```
 
-the installer writes font files under:
+The tool writes:
 
 ```text
 ~/.local/share/fonts/NerdFonts/
@@ -176,294 +402,142 @@ the installer writes font files under:
     ...
 ```
 
-Existing files with the same names are overwritten.
-
-## Usage Examples
-
-### Install One Font Family
-
-Create a small config:
-
-```yaml
-release: latest
-destination: ~/.local/share/fonts/NerdFonts
-refresh_font_cache: true
-families:
-  - JetBrainsMono
-```
-
-Preview it:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml --dry-run
-```
-
-Install it:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml
-```
-
-### Install Several Families
-
-Use this when setting up a terminal, editor, and fallback monospace stack:
-
-```yaml
-release: latest
-destination: ~/.local/share/fonts/NerdFonts
-refresh_font_cache: true
-families:
-  - JetBrainsMono
-  - Hack
-  - FiraCode
-  - Meslo
-```
-
-Run:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml
-```
-
-### Use Discovered Config
-
-Put your standard font config in the XDG config path:
-
-```bash
-mkdir -p ~/.config/nerd-config-installer
-cp config.example.yaml ~/.config/nerd-config-installer/config.yaml
-```
-
-Then run without flags:
-
-```bash
-./bin/nerdfont-install --dry-run
-./bin/nerdfont-install
-```
-
-### Use Interactive Mode
-
-If no discovered config exists, run the binary in a terminal:
-
-```bash
-./bin/nerdfont-install
-```
-
-Interactive controls:
-
-| Key | Action |
-| --- | --- |
-| `up` / `down` | Move through releases or font families. |
-| `/` | Filter the current list. |
-| `enter` | Select a release, or install selected families. |
-| `space` | Toggle a font family. |
-| `a` | Select or clear all families for the chosen release. |
-| `b` / `esc` | Go back from family selection to release selection. |
-| `q` / `ctrl+c` | Quit. |
-
-### List Font Names for Config
-
-Print copy-paste-ready family names for the latest Nerd Fonts release:
-
-```bash
-./bin/nerdfont-install --font-names
-```
-
-Output:
-
-```yaml
-# v3.4.0
-families:
-  - Hack
-  - JetBrainsMono
-  - Meslo
-```
-
-For a pinned release, put the release in a config file and pass it with
-`--font-names`:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml --font-names
-```
-
-### Pin a Nerd Fonts Release
-
-Use a release tag when your dotfiles or machine bootstrap should produce the
-same result over time:
-
-```yaml
-release: v3.4.0
-destination: ~/.local/share/fonts/NerdFonts
-refresh_font_cache: true
-families:
-  - JetBrainsMono
-  - Hack
-  - FiraCode
-```
-
-Run the same command as usual:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml
-```
-
-### Install Without Refreshing Font Cache
-
-Disable cache refresh when installing on a system without `fc-cache`, in a
-container, or in a test directory:
-
-```yaml
-release: latest
-destination: ~/.local/share/fonts/NerdFonts
-refresh_font_cache: false
-families:
-  - Hack
-```
-
-Run:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml
-```
-
-### Test Installation in a Local Directory
-
-Use a relative destination when you want to inspect extracted files without
-touching your user font directory:
-
-```yaml
-release: latest
-destination: ./tmp/fonts
-refresh_font_cache: false
-families:
-  - Meslo
-```
-
-Preview and install:
-
-```bash
-./bin/nerdfont-install --config fonts.yaml --dry-run
-./bin/nerdfont-install --config fonts.yaml
-```
-
-The output goes under:
-
-```text
-./tmp/fonts/Meslo/
-```
-
-### Use Config Next to the Binary
-
-Place `config.yaml` beside the compiled binary:
-
-```text
-bin/
-  nerdfont-install
-  config.yaml
-```
-
-Then run:
-
-```bash
-./bin/nerdfont-install --dry-run
-./bin/nerdfont-install
-```
-
-### Add It to a Bootstrap Script
-
-Build the binary, copy an example config, and run a dry-run before installing:
-
-```bash
-set -euo pipefail
-
-go build -trimpath -o bin/nerdfont-install ./cmd/nerdfont-install
-mkdir -p ~/.config/nerd-config-installer
-cp config.example.yaml ~/.config/nerd-config-installer/config.yaml
-
-./bin/nerdfont-install --dry-run
-./bin/nerdfont-install
-```
-
-## Operational Notes
-
-- Network access to `github.com` is required.
-- Interactive mode uses the GitHub releases API and may be rate limited by GitHub.
-- `families` cannot be empty and cannot contain duplicates.
-- Empty family names are rejected.
-- `fc-cache` is optional. If it is missing, cache refresh is skipped.
-- The installer writes only inside the configured destination.
-- Downloads use a 10 minute HTTP client timeout.
-- The temporary archive is removed after each family is processed.
+Each family gets its own directory. Existing files for that family are replaced
+after the new archive extracts successfully.
 
 ## Troubleshooting
 
 ### `no config found`
 
-Create a discovered config file or pass an explicit path:
+You have two choices:
 
-```bash
-mkdir -p ~/.config/nerd-config-installer
-cp config.example.yaml ~/.config/nerd-config-installer/config.yaml
-./bin/nerdfont-install --config /path/to/fonts.yaml
-```
+1. Create a config:
 
-When running in a terminal, no config starts the interactive TUI instead.
+   ```bash
+   mkdir -p ~/.config/nerd-config-installer
+   nano ~/.config/nerd-config-installer/config.yaml
+   ```
+
+2. Or pass a config explicitly:
+
+   ```bash
+   nerdfont-install --config /path/to/fonts.yaml
+   ```
+
+If you are in a real terminal and no config exists, interactive mode should
+start automatically.
 
 ### `duplicate font family "JetBrainsMono"`
 
-Each family should appear once in `families`.
+The same font appears twice in `families`.
+
+Remove the duplicate:
+
+```yaml
+families:
+  - JetBrainsMono
+```
 
 ### `download ... 404 Not Found`
 
-The family name or release tag probably does not match a Nerd Fonts release
-asset. Check the release page and use the archive name without `.zip`.
+Usually this means the family name or release tag is wrong.
 
-### Font does not show up after install
+Run:
 
-Enable cache refresh:
-
-```yaml
-refresh_font_cache: true
+```bash
+nerdfont-install --font-names
 ```
 
-Or run it manually:
+Then copy the exact family name from the output.
+
+### Font Installed but Not Visible
+
+Try refreshing the font cache:
 
 ```bash
 fc-cache -f ~/.local/share/fonts/NerdFonts
 ```
 
-Some applications also need to be restarted before newly installed fonts appear.
+Also restart the application where you select fonts. Terminals and editors often
+need a restart before new fonts appear.
+
+### Icons Still Look Broken
+
+Install a Nerd Font and then choose that exact Nerd Font in your terminal or
+editor preferences. Installing the font is only half of the job; your app still
+needs to use it.
+
+For example, choose something like:
+
+```text
+JetBrainsMono Nerd Font
+Hack Nerd Font
+FiraCode Nerd Font
+```
+
+## Notes for Linux and macOS
+
+Linux:
+
+- Recommended destination: `~/.local/share/fonts/NerdFonts`
+- Set `refresh_font_cache: true`
+- The tool will run `fc-cache` when available
+
+macOS:
+
+- You can use a custom destination if you manage fonts manually
+- `fc-cache` is usually not installed and will be skipped
+- You may prefer installing into a local folder first, then importing fonts with
+  Font Book or another font manager
+
+## Build From Source
+
+Requirements:
+
+- Go 1.26 or newer
+
+Build:
+
+```bash
+go build -trimpath -o bin/nerdfont-install ./cmd/nerdfont-install
+```
+
+Smoke test:
+
+```bash
+./bin/nerdfont-install --version
+./bin/nerdfont-install --config config.example.yaml --dry-run
+```
 
 ## Development
 
-Run the test suite:
+Run tests:
 
 ```bash
 go test ./...
 ```
 
-Run a local build and smoke test:
+Run vet:
 
 ```bash
-go build -trimpath -o bin/nerdfont-install ./cmd/nerdfont-install
-./bin/nerdfont-install --config config.example.yaml --dry-run
+go vet ./...
 ```
 
-Keep dependencies tidy:
+Run lint:
 
 ```bash
-go mod tidy
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
 ```
 
-## Design Notes
+## Design
 
-The project intentionally stays small:
+The project is intentionally small:
 
-- `cmd/nerdfont-install` owns flag parsing and process exit behavior.
-- `internal/config` owns YAML loading, defaults, and validation.
-- `internal/fonts` owns download, extraction, destination layout, and cache refresh.
-- `internal/nerdfonts` owns Nerd Fonts GitHub release discovery.
-- `internal/tui` owns the Charm Bracelet interactive picker.
+- `cmd/nerdfont-install` owns flags, command flow, and exit codes.
+- `internal/config` owns YAML loading, defaults, validation, and discovery.
+- `internal/fonts` owns downloads, extraction, atomic replacement, and cache refresh.
+- `internal/nerdfonts` owns GitHub release discovery.
+- `internal/tui` owns the Charm Bubble Tea interactive UI.
 
-That separation keeps the command easy to script while leaving the core install
-logic testable without shelling out to the compiled binary.
+The goal is not to be a full font manager. The goal is to make Nerd Font
+installation boring, repeatable, and scriptable.
