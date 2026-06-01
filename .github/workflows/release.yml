@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
@@ -14,7 +16,7 @@ concurrency:
 
 jobs:
   release:
-    name: GoReleaser
+    name: Build and Publish
     runs-on: ubuntu-latest
 
     steps:
@@ -32,11 +34,75 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          release_tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            version="latest"
+            release_tag="latest"
+          fi
+
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          commit="${GITHUB_SHA}"
+          platforms=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+          )
+
+          rm -rf dist
+          mkdir -p dist
+
+          for platform in "${platforms[@]}"; do
+            read -r goos goarch <<< "${platform}"
+            archive="nerdfont-install_${version}_${goos}_${goarch}"
+            staging="dist/${archive}"
+
+            mkdir -p "${staging}"
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=${version} -X main.commit=${commit} -X main.date=${date}" \
+              -o "${staging}/nerdfont-install" \
+              ./cmd/nerdfont-install
+
+            cp README.md config.example.yaml "${staging}/"
+            tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+            rm -rf "${staging}"
+          done
+
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+          echo "release_tag=${release_tag}" >> "${GITHUB_ENV}"
+          echo "version=${version}" >> "${GITHUB_ENV}"
+
+      - name: Publish tagged release
+        if: github.ref_type == 'tag'
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${release_tag}" dist/* \
+            --verify-tag \
+            --generate-notes \
+            --latest
+
+      - name: Publish latest release
+        if: github.ref_type != 'tag'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest dist/* \
+            --target "${GITHUB_SHA}" \
+            --title "Latest build" \
+            --notes "Automated latest build from ${GITHUB_SHA}." \
+            --prerelease \
+            --latest=false

@@ -61,10 +61,17 @@ func Install(ctx context.Context, opts Options) error {
 
 	if opts.DryRun {
 		for _, family := range opts.Families {
-			fmt.Fprintf(opts.Stdout, "Would install %s from %s into %s\n", family, ReleaseURL(opts.Release, family), filepath.Join(root, family))
+			_, _ = fmt.Fprintf(
+				opts.Stdout,
+				"%s Would install %s from %s into %s\n",
+				spinnerStyle.Render("•"),
+				fontStyle.Render(family),
+				linkStyle.Render(ReleaseURL(opts.Release, family)),
+				pathStyle.Render(filepath.Join(root, family)),
+			)
 		}
 		if opts.RefreshFontCache {
-			fmt.Fprintf(opts.Stdout, "Would refresh font cache for %s\n", root)
+			_, _ = fmt.Fprintf(opts.Stdout, "%s Would refresh font cache for %s\n", spinnerStyle.Render("↻"), pathStyle.Render(root))
 		}
 		return nil
 	}
@@ -125,14 +132,18 @@ func validateFamilyName(family string) error {
 
 func installFamily(ctx context.Context, client *http.Client, release, family, root string, stderr io.Writer) error {
 	url := ReleaseURL(release, family)
-	fmt.Fprintf(stderr, "Installing Nerd Font %s from %s\n", family, url)
+	_, _ = fmt.Fprintf(stderr, "%s Installing Nerd Font %s from %s\n", spinnerStyle.Render("⠋"), fontStyle.Render(family), linkStyle.Render(url))
 
 	temp, err := os.CreateTemp("", "nerd-font-*.zip")
 	if err != nil {
 		return fmt.Errorf("create temporary zip file: %w", err)
 	}
-	defer os.Remove(temp.Name())
-	defer temp.Close()
+	defer func() {
+		_ = os.Remove(temp.Name())
+	}()
+	defer func() {
+		_ = temp.Close()
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -142,7 +153,9 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("download %s: %s", url, resp.Status)
 	}
@@ -158,7 +171,9 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	if err != nil {
 		return fmt.Errorf("create temporary family destination in %s: %w", root, err)
 	}
-	defer os.RemoveAll(tempDestination)
+	defer func() {
+		_ = os.RemoveAll(tempDestination)
+	}()
 
 	if err := ExtractFontZip(temp.Name(), tempDestination); err != nil {
 		return fmt.Errorf("extract %s to %s: %w", temp.Name(), tempDestination, err)
@@ -166,6 +181,7 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	if err := replaceDirectory(tempDestination, destination); err != nil {
 		return err
 	}
+	_, _ = fmt.Fprintf(stderr, "%s Installed %s into %s\n", successStyle.Render("✅"), fontStyle.Render(family), pathStyle.Render(destination))
 	return nil
 }
 
@@ -185,7 +201,9 @@ func ExtractFontZip(path, destination string) error {
 	if err != nil {
 		return fmt.Errorf("open font zip %s: %w", path, err)
 	}
-	defer archive.Close()
+	defer func() {
+		_ = archive.Close()
+	}()
 
 	extracted := 0
 	for _, file := range archive.File {
@@ -217,13 +235,17 @@ func extractZipFile(file *zip.File, destination string) error {
 	if err != nil {
 		return fmt.Errorf("open zipped font %s: %w", file.Name, err)
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("create font file %s: %w", destination, err)
 	}
-	defer out.Close()
+	defer func() {
+		_ = out.Close()
+	}()
 
 	if _, err := io.Copy(out, reader); err != nil {
 		return fmt.Errorf("copy font file %s to %s: %w", file.Name, destination, err)
@@ -266,16 +288,17 @@ func replaceDirectory(source, destination string) error {
 
 func refreshFontCache(ctx context.Context, root string, stdout, stderr io.Writer) error {
 	if _, err := exec.LookPath("fc-cache"); err != nil {
-		fmt.Fprintln(stderr, "fc-cache is not available; skipping font cache refresh.")
+		_, _ = fmt.Fprintf(stderr, "%s fc-cache is not available; skipping font cache refresh.\n", warnStyle.Render("•"))
 		return nil
 	}
-	fmt.Fprintln(stderr, "Refreshing font cache...")
+	_, _ = fmt.Fprintf(stderr, "%s Refreshing font cache for %s\n", spinnerStyle.Render("⠋"), pathStyle.Render(root))
 	cmd := exec.CommandContext(ctx, "fc-cache", "-f", root)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run fc-cache for %s: %w", root, err)
 	}
+	_, _ = fmt.Fprintf(stderr, "%s Font cache refreshed\n", successStyle.Render("✅"))
 	return nil
 }
 

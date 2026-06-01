@@ -44,3 +44,18 @@ func TestModelSelectsReleaseAndFamilies(t *testing.T) {
 		t.Fatalf("selectedCount() = %d, want 0", m.selectedCount())
 	}
 }
+
+func TestModelHandlesWindowSizeBeforeFamilyListExists(t *testing.T) {
+	m := newModel([]nerdfonts.Release{
+		{
+			Name:     "v3.4.0",
+			TagName:  "v3.4.0",
+			Families: []string{"Hack"},
+		},
+	}, "/tmp/fonts", true)
+
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 12})
+	if _, ok := next.(model); !ok {
+		t.Fatalf("Update() = %T, want model", next)
+	}
+}

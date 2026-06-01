@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,9 +36,13 @@ const (
 )
 
 var (
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	helpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
+	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+	accentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
+	pathStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("219"))
+	spinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 )
 
 type item struct {
@@ -69,6 +74,97 @@ type model struct {
 	refreshFontCache bool
 	cancelled        bool
 	err              error
+}
+
+type loadReleasesMsg struct {
+	releases []nerdfonts.Release
+	err      error
+}
+
+type loadingModel struct {
+	spinner spinner.Model
+	load    func(context.Context) ([]nerdfonts.Release, error)
+	ctx     context.Context
+	message string
+	state   *loadingState
+}
+
+type loadingState struct {
+	releases []nerdfonts.Release
+	err      error
+	done     bool
+}
+
+func LoadReleases(
+	ctx context.Context,
+	load func(context.Context) ([]nerdfonts.Release, error),
+	output io.Writer,
+) ([]nerdfonts.Release, error) {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = spinnerStyle
+
+	programOptions := []tea.ProgramOption{
+		tea.WithContext(ctx),
+		tea.WithInput(nil),
+		tea.WithoutSignalHandler(),
+	}
+	if output != nil {
+		programOptions = append(programOptions, tea.WithOutput(output))
+	}
+
+	program := tea.NewProgram(loadingModel{
+		spinner: s,
+		load:    load,
+		ctx:     ctx,
+		message: "Loading Nerd Fonts releases",
+		state:   &loadingState{},
+	}, programOptions...)
+	finalModel, err := program.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	m, ok := finalModel.(loadingModel)
+	if !ok {
+		return nil, fmt.Errorf("unexpected loading model %T", finalModel)
+	}
+	if !m.state.done {
+		return nil, fmt.Errorf("release loader exited before completion")
+	}
+	return m.state.releases, m.state.err
+}
+
+func (m loadingModel) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		releases, err := m.load(m.ctx)
+		return loadReleasesMsg{releases: releases, err: err}
+	})
+}
+
+func (m loadingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case loadReleasesMsg:
+		m.state.releases = msg.releases
+		m.state.err = msg.err
+		m.state.done = true
+		if msg.err != nil {
+			m.message = errorStyle.Render(msg.err.Error())
+			return m, tea.Quit
+		}
+		m.message = successStyle.Render("✅ Releases loaded")
+		return m, tea.Quit
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	default:
+		return m, nil
+	}
+}
+
+func (m loadingModel) View() string {
+	return fmt.Sprintf("%s %s\n", m.spinner.View(), accentStyle.Render(m.message))
 }
 
 func Run(ctx context.Context, releases []nerdfonts.Release, opts Options) (Result, error) {
@@ -139,7 +235,7 @@ func newModel(releases []nerdfonts.Release, destination string, refreshFontCache
 		})
 	}
 
-	delegate := list.NewDefaultDelegate()
+	delegate := newDelegate()
 	releaseList := list.New(items, delegate, 0, 0)
 	releaseList.Title = "Select Nerd Fonts release"
 	releaseList.SetShowStatusBar(false)
@@ -162,8 +258,10 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.releaseList.SetSize(msg.Width, msg.Height-6)
-		m.familyList.SetSize(msg.Width, msg.Height-8)
+		m.releaseList = setListSize(m.releaseList, msg.Width, msg.Height-6)
+		if m.step == stepFamilies {
+			m.familyList = setListSize(m.familyList, msg.Width, msg.Height-8)
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)
@@ -265,7 +363,7 @@ func (m model) updateFamilyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) newFamilyList() list.Model {
-	delegate := list.NewDefaultDelegate()
+	delegate := newDelegate()
 	familyList := list.New(m.familyItems(), delegate, m.releaseList.Width(), m.releaseList.Height())
 	familyList.Title = "Select font families"
 	familyList.SetShowStatusBar(false)
@@ -276,9 +374,9 @@ func (m model) newFamilyList() list.Model {
 func (m model) familyItems() []list.Item {
 	items := make([]list.Item, 0, len(m.selectedRelease.Families))
 	for _, family := range m.selectedRelease.Families {
-		marker := "[ ]"
+		marker := "○"
 		if m.selectedFamilies[family] {
-			marker = "[x]"
+			marker = "✅"
 		}
 		items = append(items, item{
 			title:       marker + " " + family,
@@ -287,6 +385,37 @@ func (m model) familyItems() []list.Item {
 		})
 	}
 	return items
+}
+
+func newDelegate() list.DefaultDelegate {
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		Foreground(lipgloss.Color("81")).
+		BorderForeground(lipgloss.Color("63")).
+		Bold(true)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		Foreground(lipgloss.Color("219")).
+		BorderForeground(lipgloss.Color("63"))
+	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.Foreground(lipgloss.Color("252"))
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(lipgloss.Color("245"))
+	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(lipgloss.Color("214")).Bold(true)
+	return delegate
+}
+
+func setListSize(model list.Model, width, height int) (resized list.Model) {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	defer func() {
+		if recover() != nil {
+			resized = model
+		}
+	}()
+	model.SetSize(width, height)
+	return model
 }
 
 func (m model) selectedCount() int {
@@ -315,8 +444,8 @@ func (m model) View() string {
 	case stepFamilies:
 		summary := fmt.Sprintf(
 			"Release %s -> %s (%d selected)",
-			m.selectedRelease.TagName,
-			m.destination,
+			accentStyle.Render(m.selectedRelease.TagName),
+			pathStyle.Render(m.destination),
 			m.selectedCount(),
 		)
 		return strings.Join([]string{
@@ -325,6 +454,8 @@ func (m model) View() string {
 			m.familyList.View(),
 			helpStyle.Render("space: toggle  a: all/none  enter: install  b/esc: back  /: filter  q: quit"),
 		}, "\n")
+	case stepDone:
+		return successStyle.Render("✅ Ready to install selected fonts")
 	default:
 		return ""
 	}

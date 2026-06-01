@@ -150,6 +150,7 @@ nerdfont-install [flags]
 | --- | --- | --- |
 | `--config` | none | YAML config file with release, destination, cache refresh, and families. When omitted, discovery runs first, then interactive mode. |
 | `--dry-run` | `false` | Print planned downloads and destinations without writing files. |
+| `--font-names` | `false` | Print YAML-ready font family names for the latest release, or for the release from `--config`, then exit. |
 | `--version` | `false` | Print build metadata and exit. |
 
 ## Install Layout
@@ -259,6 +260,31 @@ Interactive controls:
 | `a` | Select or clear all families for the chosen release. |
 | `b` / `esc` | Go back from family selection to release selection. |
 | `q` / `ctrl+c` | Quit. |
+
+### List Font Names for Config
+
+Print copy-paste-ready family names for the latest Nerd Fonts release:
+
+```bash
+./bin/nerdfont-install --font-names
+```
+
+Output:
+
+```yaml
+# v3.4.0
+families:
+  - Hack
+  - JetBrainsMono
+  - Meslo
+```
+
+For a pinned release, put the release in a config file and pass it with
+`--font-names`:
+
+```bash
+./bin/nerdfont-install --config fonts.yaml --font-names
+```
 
 ### Pin a Nerd Fonts Release
 

@@ -80,7 +80,9 @@ func (c Client) Releases(ctx context.Context) ([]Release, error) {
 }
 
 func decodeReleases(resp *http.Response) ([]Release, error) {
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("list Nerd Fonts releases: %s", resp.Status)
 	}

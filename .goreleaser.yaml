@@ -15,7 +15,6 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
@@ -28,10 +27,6 @@ archives:
       - nerdfont-install
     formats:
       - tar.gz
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_

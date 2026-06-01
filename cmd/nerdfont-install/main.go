@@ -75,13 +75,14 @@ func run(
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "YAML config file; when omitted, discover config or start interactive mode")
 	dryRun := flags.Bool("dry-run", false, "print planned downloads without installing fonts")
+	showFontNames := flags.Bool("font-names", false, "print YAML-ready Nerd Font family names and exit")
 	showVersion := flags.Bool("version", false, "print version information and exit")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "nerdfont-install %s (%s, %s)\n", version, commit, date)
+		_, _ = fmt.Fprintf(stdout, "nerdfont-install %s (%s, %s)\n", version, commit, date)
 		return 0
 	}
 
@@ -91,6 +92,14 @@ func run(
 			explicitConfig = true
 		}
 	})
+
+	if *showFontNames {
+		if err := printFontNames(ctx, *configPath, explicitConfig, stdout, deps); err != nil {
+			_, _ = fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+		return 0
+	}
 
 	cfg, err := resolveConfig(
 		ctx,
@@ -104,15 +113,62 @@ func run(
 		if errors.Is(err, errCancelled) {
 			return 0
 		}
-		fmt.Fprintf(stderr, "%v\n", err)
+		_, _ = fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 
 	if err := install(ctx, cfg, *dryRun, stdout, stderr, deps.installFonts); err != nil {
-		fmt.Fprintf(stderr, "install fonts: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "install fonts: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func printFontNames(
+	ctx context.Context,
+	configPath string,
+	explicitConfig bool,
+	stdout io.Writer,
+	deps dependencies,
+) error {
+	release := "latest"
+	if explicitConfig {
+		cfg, err := deps.loadConfig(configPath)
+		if err != nil {
+			return fmt.Errorf("load config %s: %w", configPath, err)
+		}
+		release = cfg.Release
+	}
+
+	releases, err := deps.listReleases(ctx)
+	if err != nil {
+		return err
+	}
+	selected, err := selectRelease(releases, release)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(stdout, "# %s\nfamilies:\n", selected.TagName)
+	for _, family := range selected.Families {
+		_, _ = fmt.Fprintf(stdout, "  - %s\n", family)
+	}
+	return nil
+}
+
+func selectRelease(releases []nerdfonts.Release, release string) (nerdfonts.Release, error) {
+	if len(releases) == 0 {
+		return nerdfonts.Release{}, fmt.Errorf("no Nerd Fonts releases found")
+	}
+	if release == "" || release == "latest" {
+		return releases[0], nil
+	}
+	for _, candidate := range releases {
+		if candidate.TagName == release {
+			return candidate, nil
+		}
+	}
+	return nerdfonts.Release{}, fmt.Errorf("nerd fonts release %q was not found", release)
 }
 
 func resolveConfig(
@@ -136,7 +192,7 @@ func resolveConfig(
 		return config.Config{}, err
 	}
 	if found {
-		fmt.Fprintf(stderr, "Using config %s\n", source.Path)
+		_, _ = fmt.Fprintf(stderr, "Using config %s\n", source.Path)
 		return source.Config, nil
 	}
 
@@ -146,8 +202,8 @@ func resolveConfig(
 		)
 	}
 
-	fmt.Fprintln(stderr, "No config found. Starting interactive mode...")
-	releases, err := deps.listReleases(ctx)
+	_, _ = fmt.Fprintln(stderr, "No config found. Starting interactive mode...")
+	releases, err := tui.LoadReleases(ctx, deps.listReleases, stderr)
 	if err != nil {
 		return config.Config{}, err
 	}
