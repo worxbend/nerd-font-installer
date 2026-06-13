@@ -279,6 +279,101 @@ func TestInstallKeepsExistingFamilyDirectoryOnExtractionFailure(t *testing.T) {
 	}
 }
 
+func TestInstallReportsDownloadErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport roundTripFunc
+		wantSub   string
+	}{
+		{
+			name: "non-2xx status",
+			transport: func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Status:     "404 Not Found",
+					Body:       io.NopCloser(bytes.NewReader(nil)),
+				}, nil
+			},
+			wantSub: "404 Not Found",
+		},
+		{
+			name: "transport error",
+			transport: func(*http.Request) (*http.Response, error) {
+				return nil, errTransport
+			},
+			wantSub: "download",
+		},
+		{
+			name: "truncated body",
+			transport: func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Body:       io.NopCloser(errReader{}),
+				}, nil
+			},
+			wantSub: "copy download",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "fonts")
+			err := Install(t.Context(), Options{
+				Release:     "latest",
+				Destination: destination,
+				Families:    []string{"Hack"},
+				HTTPClient:  &http.Client{Transport: tt.transport},
+			})
+			if err == nil {
+				t.Fatal("Install() error = nil, want download error")
+			}
+			if !strings.Contains(err.Error(), tt.wantSub) {
+				t.Fatalf("Install() error = %v, want substring %q", err, tt.wantSub)
+			}
+			if _, statErr := os.Stat(filepath.Join(destination, "Hack")); !os.IsNotExist(statErr) {
+				t.Fatalf("family directory should not exist after failure, stat err = %v", statErr)
+			}
+		})
+	}
+}
+
+func TestReplaceDirectoryRollsBackOnFailure(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "Hack")
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(destination, "keep.ttf")
+	if err := os.WriteFile(keep, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A source that does not exist forces the forward rename to fail after the
+	// existing destination has been moved aside, exercising the rollback path.
+	missingSource := filepath.Join(root, "does-not-exist")
+	if err := replaceDirectory(missingSource, destination); err == nil {
+		t.Fatal("replaceDirectory() error = nil, want rename failure")
+	}
+
+	data, err := os.ReadFile(keep)
+	if err != nil || string(data) != "original" {
+		t.Fatalf("rollback failed: original content = %q, err = %v", data, err)
+	}
+	if _, err := os.Stat(destination + ".old"); !os.IsNotExist(err) {
+		t.Fatalf("backup should be restored (no .old left), stat err = %v", err)
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errTransport }
+
+var errTransport = errorString("simulated network failure")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

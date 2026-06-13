@@ -126,6 +126,9 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	defer func() {
 		_ = os.Remove(temp.Name())
 	}()
+	// Safety net for the early-return error paths below; the meaningful close
+	// that surfaces flush errors happens explicitly after io.Copy. Re-closing
+	// an already-closed file returns os.ErrClosed, which is harmless here.
 	defer func() {
 		_ = temp.Close()
 	}()
@@ -228,12 +231,21 @@ func extractZipFile(file *zip.File, destination string) error {
 	if err != nil {
 		return fmt.Errorf("create font file %s: %w", destination, err)
 	}
+	// Safety net only; the meaningful close is the explicit one below, where a
+	// flush error (ENOSPC, EIO, quota) on a written file would otherwise be
+	// silently dropped and a truncated font promoted as a successful install.
 	defer func() {
 		_ = out.Close()
 	}()
 
 	if _, err := io.Copy(out, reader); err != nil {
 		return fmt.Errorf("copy font file %s to %s: %w", file.Name, destination, err)
+	}
+	if err := out.Sync(); err != nil {
+		return fmt.Errorf("flush font file %s: %w", destination, err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("finalize font file %s: %w", destination, err)
 	}
 	return nil
 }
@@ -265,9 +277,11 @@ func replaceDirectory(source, destination string) error {
 		return fmt.Errorf("move extracted fonts %s to %s: %w", source, destination, err)
 	}
 
-	if err := os.RemoveAll(backup); err != nil {
-		return fmt.Errorf("remove backup %s: %w", backup, err)
-	}
+	// The swap above is the commit point: the new fonts are now live at
+	// destination. Removing the backup is best-effort cleanup and must not turn
+	// a succeeded install into a reported failure. A leftover ".old" directory
+	// is harmless and is cleared by the RemoveAll at the top of the next run.
+	_ = os.RemoveAll(backup)
 	return nil
 }
 
