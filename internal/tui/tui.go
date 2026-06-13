@@ -39,15 +39,20 @@ const (
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("63"))
+			Foreground(lipgloss.Color("231"))
+	logoMarkStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("213"))
+	logoTextStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("86"))
 	bannerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("81")).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 3)
+			BorderForeground(lipgloss.Color("57")).
+			Padding(1, 2)
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
+			Foreground(lipgloss.Color("250"))
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 	keyStyle = lipgloss.NewStyle().
@@ -61,13 +66,34 @@ var (
 	accentStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("81")).
 			Bold(true)
-	pathStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("219"))
+	accentAltStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("213")).
+			Bold(true)
 	pillStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("63")).
+			Foreground(lipgloss.Color("232")).
+			Background(lipgloss.Color("220")).
 			Bold(true).
 			Padding(0, 1)
+	panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			Padding(1, 2)
+	activePanelStyle = panelStyle.
+				BorderForeground(lipgloss.Color("81"))
+	sidePanelStyle = panelStyle.
+			BorderForeground(lipgloss.Color("99"))
+	panelTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("220")).
+			Bold(true)
+	labelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Bold(true)
+	valueStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("231"))
+	progressTrackStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("238"))
+	progressFillStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("86"))
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("63"))
 )
@@ -128,6 +154,8 @@ type model struct {
 	refreshFontCache bool
 	cancelled        bool
 	err              error
+	width            int
+	height           int
 }
 
 type loadReleasesMsg struct {
@@ -306,16 +334,9 @@ func newModel(releases []nerdfonts.Release, destination string, refreshFontCache
 	delegate := newDelegate()
 	releaseList := list.New(items, delegate, 0, 0)
 	releaseList.Title = icons.Package + "  Select Nerd Fonts release"
-	releaseList.SetShowStatusBar(false)
-	releaseList.SetFilteringEnabled(true)
-	releaseList.Styles.Title = releaseList.Styles.Title.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("63")).
-		Bold(true)
-	releaseList.Styles.PaginationStyle = helpStyle
-	releaseList.Styles.HelpStyle = helpStyle
+	configureList(&releaseList, "release", "releases")
 
-	return model{
+	m := model{
 		step:             stepRelease,
 		releases:         releases,
 		releaseList:      releaseList,
@@ -323,7 +344,12 @@ func newModel(releases []nerdfonts.Release, destination string, refreshFontCache
 		selectedFamilies: map[string]bool{},
 		destination:      destination,
 		refreshFontCache: refreshFontCache,
+		width:            96,
+		height:           32,
 	}
+	listWidth, listHeight := m.listSize()
+	m.releaseList = setListSize(m.releaseList, listWidth, listHeight)
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -333,9 +359,12 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.releaseList = setListSize(m.releaseList, msg.Width, msg.Height-10)
+		m.width = msg.Width
+		m.height = msg.Height
+		listWidth, listHeight := m.listSize()
+		m.releaseList = setListSize(m.releaseList, listWidth, listHeight)
 		if m.step == stepFamilies {
-			m.familyList = setListSize(m.familyList, msg.Width, msg.Height-12)
+			m.familyList = setListSize(m.familyList, listWidth, listHeight)
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -439,17 +468,38 @@ func (m model) updateFamilyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) newFamilyList() list.Model {
 	delegate := newDelegate()
-	familyList := list.New(m.familyItems(), delegate, m.releaseList.Width(), m.releaseList.Height())
+	listWidth, listHeight := m.listSize()
+	familyList := list.New(m.familyItems(), delegate, listWidth, listHeight)
 	familyList.Title = m.icons.Title + "  Select font families"
-	familyList.SetShowStatusBar(false)
-	familyList.SetFilteringEnabled(true)
-	familyList.Styles.Title = familyList.Styles.Title.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("63")).
-		Bold(true)
-	familyList.Styles.PaginationStyle = helpStyle
-	familyList.Styles.HelpStyle = helpStyle
+	configureList(&familyList, "font", "fonts")
 	return familyList
+}
+
+func configureList(model *list.Model, singular, plural string) {
+	model.SetShowStatusBar(true)
+	model.SetStatusBarItemName(singular, plural)
+	model.SetFilteringEnabled(true)
+	model.SetShowHelp(false)
+	model.DisableQuitKeybindings()
+	model.Styles.Title = model.Styles.Title.
+		Foreground(lipgloss.Color("232")).
+		Background(lipgloss.Color("86")).
+		Bold(true).
+		Padding(0, 1)
+	model.Styles.TitleBar = model.Styles.TitleBar.
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(lipgloss.Color("238")).
+		PaddingBottom(1)
+	model.Styles.StatusBar = model.Styles.StatusBar.
+		Foreground(lipgloss.Color("244")).
+		PaddingTop(1)
+	model.Styles.StatusBarActiveFilter = model.Styles.StatusBarActiveFilter.
+		Foreground(lipgloss.Color("220")).
+		Bold(true)
+	model.Styles.StatusBarFilterCount = model.Styles.StatusBarFilterCount.
+		Foreground(lipgloss.Color("213"))
+	model.Styles.PaginationStyle = helpStyle
+	model.Styles.HelpStyle = helpStyle
 }
 
 func (m model) familyItems() []list.Item {
@@ -470,17 +520,23 @@ func (m model) familyItems() []list.Item {
 
 func newDelegate() list.DefaultDelegate {
 	delegate := list.NewDefaultDelegate()
+	delegate.SetSpacing(1)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("230")).
-		BorderForeground(lipgloss.Color("63")).
-		Background(lipgloss.Color("57")).
+		Foreground(lipgloss.Color("231")).
+		BorderForeground(lipgloss.Color("213")).
+		Background(lipgloss.Color("62")).
 		Bold(true)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("219")).
-		BorderForeground(lipgloss.Color("63"))
-	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.Foreground(lipgloss.Color("252")).Bold(true)
-	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(lipgloss.Color("245"))
-	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(lipgloss.Color("214")).Bold(true)
+		Foreground(lipgloss.Color("225")).
+		BorderForeground(lipgloss.Color("213"))
+	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
+		Foreground(lipgloss.Color("252")).
+		Bold(true)
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(lipgloss.Color("246"))
+	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.
+		Foreground(lipgloss.Color("220")).
+		Underline(true).
+		Bold(true)
 	return delegate
 }
 
@@ -543,38 +599,205 @@ func (m model) View() string {
 
 	switch m.step {
 	case stepRelease:
-		return strings.Join([]string{
-			m.banner(),
-			subtitleStyle.Render(m.icons.Launch + " Choose a release, then collect patched fonts with devicons, symbols, and terminal glyphs."),
-			m.releaseList.View(),
-			help("enter", "choose release", "/", "filter", "q", "quit"),
-		}, "\n")
+		return m.releaseView()
 	case stepFamilies:
-		summary := fmt.Sprintf(
-			"%s  %s  %s",
-			pillStyle.Render(fmt.Sprintf("%s %s", m.icons.Release, m.selectedRelease.TagName)),
-			pathStyle.Render(m.icons.Folder+" "+m.destination),
-			successStyle.Render(fmt.Sprintf("%s %d selected", m.icons.Selected, m.selectedCount())),
-		)
-		return strings.Join([]string{
-			m.banner(),
-			summary,
-			m.familyList.View(),
-			help("space", "toggle", "a", "all/none", "enter", "install", "b/esc", "back", "/", "filter", "q", "quit"),
-		}, "\n")
+		return m.familiesView()
 	case stepDone:
-		return successStyle.Render(m.icons.Ready + "  Ready to install selected fonts")
+		return m.doneView()
 	default:
 		return ""
 	}
 }
 
-func (m model) banner() string {
-	lines := []string{
-		titleStyle.Render(m.icons.Title + "  Nerd Font Installer  " + m.icons.Package + "  " + m.icons.Font),
-		subtitleStyle.Render("Terminal fonts, devicons, ligatures, and patched glyphs in one pass " + m.icons.Launch),
+func (m model) releaseView() string {
+	header := m.banner("Choose a release", "Pick the Nerd Fonts tag to browse, then filter or confirm.")
+	body := m.screenBody(m.releaseList.View(), m.releasePreview())
+	return m.screen(header, body, help("enter", "choose release", "/", "filter", "esc/q", "quit"))
+}
+
+func (m model) familiesView() string {
+	selected := fmt.Sprintf("%d/%d selected", m.selectedCount(), len(m.selectedRelease.Families))
+	header := m.banner("Build your font set", selected+" for "+m.selectedRelease.TagName)
+	body := m.screenBody(m.familyList.View(), m.familyPreview())
+	return m.screen(
+		header,
+		body,
+		help("space", "toggle", "a", "all/none", "enter", "install", "b/esc", "back", "/", "filter", "q", "quit"),
+	)
+}
+
+func (m model) doneView() string {
+	header := m.banner("Ready to install", fmt.Sprintf("%d families selected", m.selectedCount()))
+	body := activePanelStyle.Width(m.bodyWidth() - 6).Render(strings.Join([]string{
+		successStyle.Render(m.icons.Ready + "  Selection locked in"),
+		"",
+		statLine(m.icons.Release, "Release", m.selectedRelease.TagName),
+		statLine(m.icons.Folder, "Destination", m.destination),
+		statLine(m.icons.Selected, "Families", fmt.Sprintf("%d", m.selectedCount())),
+	}, "\n"))
+	return m.screen(header, body, help("enter", "continue"))
+}
+
+func (m model) screen(header, body, footer string) string {
+	return strings.Join([]string{header, body, footer}, "\n\n")
+}
+
+func (m model) screenBody(listView, preview string) string {
+	listPanel := activePanelStyle.Width(m.listPanelWidth()).Render(listView)
+	if !m.wideLayout() {
+		return strings.Join([]string{listPanel, preview}, "\n")
 	}
-	return bannerStyle.Render(strings.Join(lines, "\n"))
+	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, "  ", preview)
+}
+
+func (m model) banner(stepLabel, detail string) string {
+	logo := logoMarkStyle.Render(m.logo()) + "  " + logoTextStyle.Render("nerdfont-install")
+	title := titleStyle.Render(stepLabel)
+	meta := strings.Join([]string{
+		pillStyle.Render(m.icons.Package + " CLI"),
+		accentStyle.Render(m.icons.Font + " patched glyphs"),
+		accentAltStyle.Render(m.icons.Launch + " terminal-ready"),
+	}, "  ")
+	lines := []string{
+		logo,
+		title,
+		subtitleStyle.Render(detail),
+		meta,
+	}
+	return bannerStyle.Width(m.bodyWidth() - 6).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) logo() string {
+	switch m.icons.Mode {
+	case IconASCII:
+		return "[NF]"
+	default:
+		return "✦ NF ✦"
+	}
+}
+
+func (m model) releasePreview() string {
+	release := m.currentRelease()
+	lines := []string{
+		panelTitleStyle.Render(m.icons.Package + " Release cockpit"),
+		"",
+		statLine(m.icons.Release, "Current", release.TagName),
+		statLine(m.icons.Font, "Archives", fmt.Sprintf("%d", len(release.Families))),
+		statLine(m.icons.Toolbox, "Mode", string(m.icons.Mode)),
+		"",
+		subtitleStyle.Render("Use filtering to jump across releases. Press enter to open the selected archive catalog."),
+	}
+	return sidePanelStyle.Width(m.previewWidth()).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) familyPreview() string {
+	total := len(m.selectedRelease.Families)
+	selected := m.selectedCount()
+	lines := []string{
+		panelTitleStyle.Render(m.icons.Title + " Install plan"),
+		"",
+		statLine(m.icons.Release, "Release", m.selectedRelease.TagName),
+		statLine(m.icons.Folder, "Destination", m.destination),
+		statLine(m.icons.Selected, "Selected", fmt.Sprintf("%d of %d", selected, total)),
+		"",
+		m.progressBar(selected, total),
+		"",
+		subtitleStyle.Render("Toggle families with space. Select all when bootstrapping a new terminal profile."),
+	}
+	return sidePanelStyle.Width(m.previewWidth()).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) currentRelease() nerdfonts.Release {
+	selected, ok := m.releaseList.SelectedItem().(item)
+	if ok {
+		for _, release := range m.releases {
+			if release.TagName == selected.value {
+				return release
+			}
+		}
+	}
+	return m.releases[0]
+}
+
+func (m model) progressBar(selected, total int) string {
+	const cells = 22
+	filled := 0
+	if total > 0 {
+		filled = selected * cells / total
+	}
+	if filled > cells {
+		filled = cells
+	}
+	bar := progressFillStyle.Render(strings.Repeat("━", filled)) +
+		progressTrackStyle.Render(strings.Repeat("━", cells-filled))
+	return bar + "  " + accentStyle.Render(fmt.Sprintf("%d%%", percentage(selected, total)))
+}
+
+func percentage(selected, total int) int {
+	if total == 0 {
+		return 0
+	}
+	return selected * 100 / total
+}
+
+func statLine(icon, label, value string) string {
+	return fmt.Sprintf(
+		"%s  %s  %s",
+		accentStyle.Render(icon),
+		labelStyle.Width(12).Render(label),
+		valueStyle.Render(value),
+	)
+}
+
+func (m model) listSize() (int, int) {
+	height := m.safeHeight() - 15
+	if height < 8 {
+		height = 8
+	}
+	if m.wideLayout() {
+		return m.listPanelWidth() - 6, height
+	}
+	return m.bodyWidth() - 8, height
+}
+
+func (m model) wideLayout() bool {
+	return m.safeWidth() >= 104
+}
+
+func (m model) bodyWidth() int {
+	width := m.safeWidth()
+	if width > 132 {
+		return 132
+	}
+	return width
+}
+
+func (m model) listPanelWidth() int {
+	if !m.wideLayout() {
+		return m.bodyWidth() - 4
+	}
+	return m.bodyWidth() - m.previewWidth() - 8
+}
+
+func (m model) previewWidth() int {
+	if !m.wideLayout() {
+		return m.bodyWidth() - 4
+	}
+	return 34
+}
+
+func (m model) safeWidth() int {
+	if m.width < 48 {
+		return 48
+	}
+	return m.width
+}
+
+func (m model) safeHeight() int {
+	if m.height < 24 {
+		return 24
+	}
+	return m.height
 }
 
 func help(parts ...string) string {
@@ -583,7 +806,7 @@ func help(parts ...string) string {
 	}
 
 	segments := make([]string, 0, len(parts)/2)
-	for i := 0; i < len(parts); i += 2 {
+	for i := 0; i+1 < len(parts); i += 2 {
 		segments = append(segments, keyStyle.Render(parts[i])+helpStyle.Render(": "+parts[i+1]))
 	}
 	return strings.Join(segments, helpStyle.Render("  •  "))

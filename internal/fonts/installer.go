@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -74,10 +75,14 @@ func Install(ctx context.Context, opts Options) error {
 		// Per-download timeouts are applied via context, so leave the client
 		// timeout unset. Raise the per-host connection caps from the default 2
 		// so concurrent downloads to github.com reuse pooled connections.
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.MaxIdleConnsPerHost = maxConcurrentInstalls
-		transport.MaxConnsPerHost = maxConcurrentInstalls
-		opts.HTTPClient = &http.Client{Transport: transport}
+		if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+			transport := defaultTransport.Clone()
+			transport.MaxIdleConnsPerHost = maxConcurrentInstalls
+			transport.MaxConnsPerHost = maxConcurrentInstalls
+			opts.HTTPClient = &http.Client{Transport: transport}
+		} else {
+			opts.HTTPClient = &http.Client{Transport: http.DefaultTransport}
+		}
 	}
 	opts = normalizeOptions(opts)
 	if opts.Release == "" {
@@ -109,7 +114,7 @@ func Install(ctx context.Context, opts Options) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil { //nolint:gosec // Font directories must be traversable by font tooling and user applications.
 		return fmt.Errorf("create destination %s: %w", root, err)
 	}
 
@@ -243,8 +248,8 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	if written > maxDownloadBytes {
 		return fmt.Errorf("download %s: exceeds %d byte limit", url, maxDownloadBytes)
 	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("finalize download %s: %w", temp.Name(), err)
+	if closeErr := temp.Close(); closeErr != nil {
+		return fmt.Errorf("finalize download %s: %w", temp.Name(), closeErr)
 	}
 	if wantChecksum != "" {
 		if got := hex.EncodeToString(hasher.Sum(nil)); got != wantChecksum {
@@ -336,7 +341,7 @@ func ReleaseURL(release, family string) string {
 }
 
 func ExtractFontZip(path, destination string) error {
-	if err := os.MkdirAll(destination, 0o755); err != nil {
+	if err := os.MkdirAll(destination, 0o755); err != nil { //nolint:gosec // Extracted font directories need normal user/app traversal permissions.
 		return fmt.Errorf("create extraction destination %s: %w", destination, err)
 	}
 	archive, err := zip.OpenReader(path)
@@ -355,10 +360,14 @@ func ExtractFontZip(path, destination string) error {
 		}
 		// Reject on the declared size first (cheap, no decompression), then
 		// enforce the same cap on the actual stream during the copy.
-		if file.UncompressedSize64 > uint64(maxFontFileBytes) {
+		if exceedsInt64Limit(file.UncompressedSize64, maxFontFileBytes) {
 			return fmt.Errorf("extract %s: font file %s declares %d bytes, exceeds %d byte limit", path, file.Name, file.UncompressedSize64, maxFontFileBytes)
 		}
-		totalBytes += int64(file.UncompressedSize64)
+		entryBytes := int64(file.UncompressedSize64) //nolint:gosec // exceedsInt64Limit above rejects values that cannot fit in int64.
+		if totalBytes > maxArchiveBytes-entryBytes {
+			return fmt.Errorf("extract %s: total uncompressed size exceeds %d byte limit", path, maxArchiveBytes)
+		}
+		totalBytes += entryBytes
 		if totalBytes > maxArchiveBytes {
 			return fmt.Errorf("extract %s: total uncompressed size exceeds %d byte limit", path, maxArchiveBytes)
 		}
@@ -382,6 +391,13 @@ func isFontFile(path string) bool {
 	}
 }
 
+func exceedsInt64Limit(value uint64, limit int64) bool {
+	if limit < 0 || value > math.MaxInt64 {
+		return true
+	}
+	return int64(value) > limit
+}
+
 func extractZipFile(file *zip.File, destination string, limit int64) error {
 	reader, err := file.Open()
 	if err != nil {
@@ -391,7 +407,7 @@ func extractZipFile(file *zip.File, destination string, limit int64) error {
 		_ = reader.Close()
 	}()
 
-	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644) //nolint:gosec // Installed fonts should be readable by normal font consumers.
 	if err != nil {
 		return fmt.Errorf("create font file %s: %w", destination, err)
 	}

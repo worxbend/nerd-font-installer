@@ -73,7 +73,9 @@ the font cache. Audience: dotfiles / fresh-machine / dev-container setup.
 
 - Go **1.26**. Module: `github.com/w0rxbend/nerd-font-installer`.
 - `make verify` ≈ `go vet ./...` + `golangci-lint run` (v2.12.2) + `go test ./...`.
-  **Tests must pass under `-race`** (the install path is concurrent).
+  `golangci-lint` is a required check for every code change; `make lint` is the
+  focused lint target. **Tests must pass under `-race`** (the install path is
+  concurrent).
 - CI runs vet, lint, test matrix (ubuntu+macOS), race, coverage, govulncheck,
   actionlint. Mirror that locally before pushing.
 - Release CI publishes versioned GitHub releases for `v*` tags and refreshes a

@@ -118,14 +118,14 @@ func TestExtractFontZipRejectsArchiveWithoutFonts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := entry.Write([]byte("docs")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := entry.Write([]byte("docs")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := file.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	err = ExtractFontZip(archivePath, filepath.Join(temp, "out"))
@@ -211,7 +211,7 @@ func TestInstallReplacesFamilyDirectoryAfterSuccessfulExtraction(t *testing.T) {
 	var stderr bytes.Buffer
 	destination := filepath.Join(t.TempDir(), "fonts")
 	existingFamily := filepath.Join(destination, "Hack")
-	if err := os.MkdirAll(existingFamily, 0o755); err != nil {
+	if err := os.MkdirAll(existingFamily, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(existingFamily, "old.ttf"), []byte("old"), 0o644); err != nil {
@@ -249,7 +249,7 @@ func TestInstallReplacesFamilyDirectoryAfterSuccessfulExtraction(t *testing.T) {
 func TestInstallKeepsExistingFamilyDirectoryOnExtractionFailure(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "fonts")
 	existingFamily := filepath.Join(destination, "Hack")
-	if err := os.MkdirAll(existingFamily, 0o755); err != nil {
+	if err := os.MkdirAll(existingFamily, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	existingFont := filepath.Join(existingFamily, "old.ttf")
@@ -297,14 +297,14 @@ func TestExtractFontZipRejectsOversizeFontFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := entry.Write([]byte("this font is larger than the cap")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := entry.Write([]byte("this font is larger than the cap")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := file.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	err = ExtractFontZip(archivePath, filepath.Join(temp, "out"))
@@ -330,19 +330,19 @@ func TestExtractFontZipRejectsOversizeArchiveTotal(t *testing.T) {
 	}
 	writer := zip.NewWriter(file)
 	for _, name := range []string{"A.ttf", "B.ttf"} {
-		entry, err := writer.Create(name)
-		if err != nil {
-			t.Fatal(err)
+		entry, createErr := writer.Create(name)
+		if createErr != nil {
+			t.Fatal(createErr)
 		}
-		if _, err := entry.Write([]byte("ten bytes!")); err != nil {
-			t.Fatal(err)
+		if _, writeErr := entry.Write([]byte("ten bytes!")); writeErr != nil {
+			t.Fatal(writeErr)
 		}
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := file.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	err = ExtractFontZip(archivePath, filepath.Join(temp, "out"))
@@ -543,7 +543,7 @@ func TestInstallReportsDownloadErrors(t *testing.T) {
 func TestReplaceDirectoryRollsBackOnFailure(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "Hack")
-	if err := os.MkdirAll(destination, 0o755); err != nil {
+	if err := os.MkdirAll(destination, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	keep := filepath.Join(destination, "keep.ttf")

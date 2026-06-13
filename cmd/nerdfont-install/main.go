@@ -120,9 +120,9 @@ func run(
 	})
 
 	if *showFontNames {
-		if err := printFontNames(ctx, *configPath, explicitConfig, stdout, deps); err != nil {
-			_, _ = fmt.Fprintf(stderr, "%v\n", err)
-			return exitCodeFor(err)
+		if printErr := printFontNames(ctx, *configPath, explicitConfig, stdout, deps); printErr != nil {
+			_, _ = fmt.Fprintf(stderr, "%v\n", printErr)
+			return exitCodeFor(printErr)
 		}
 		return 0
 	}
