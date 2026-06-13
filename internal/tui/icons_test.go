@@ -6,47 +6,67 @@ import (
 
 // Tests for resolveIconSet, which was extracted into icons.go in this PR.
 
-func TestResolveIconSetNerdReturnsNerdMode(t *testing.T) {
-	got := resolveIconSet(IconNerd)
-	if got.Mode != IconNerd {
-		t.Fatalf("resolveIconSet(IconNerd).Mode = %q, want %q", got.Mode, IconNerd)
+func TestResolveIconSetModes(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     IconMode
+		wantMode IconMode
+	}{
+		{name: "nerd", mode: IconNerd, wantMode: IconNerd},
+		{name: "ascii", mode: IconASCII, wantMode: IconASCII},
+		{name: "unicode", mode: IconUnicode, wantMode: IconUnicode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveIconSet(tt.mode)
+			if got.Mode != tt.wantMode {
+				t.Fatalf("resolveIconSet(%q).Mode = %q, want %q", tt.mode, got.Mode, tt.wantMode)
+			}
+		})
 	}
 }
 
-func TestResolveIconSetNerdHasNerdCheckboxes(t *testing.T) {
-	got := resolveIconSet(IconNerd)
-	if got.Checked != "󰄲" {
-		t.Fatalf("resolveIconSet(IconNerd).Checked = %q, want Nerd Font checked glyph", got.Checked)
+func TestResolveIconSetCheckboxes(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          IconMode
+		wantChecked   string
+		wantUnchecked string
+	}{
+		{name: "nerd", mode: IconNerd, wantChecked: "󰄲", wantUnchecked: "󰄱"},
+		{name: "ascii", mode: IconASCII, wantChecked: "[x]", wantUnchecked: "[ ]"},
+		{name: "unicode", mode: IconUnicode, wantChecked: "☑", wantUnchecked: "☐"},
 	}
-	if got.Unchecked != "󰄱" {
-		t.Fatalf("resolveIconSet(IconNerd).Unchecked = %q, want Nerd Font unchecked glyph", got.Unchecked)
-	}
-}
-
-func TestResolveIconSetNerdHasFamilyGlyphs(t *testing.T) {
-	got := resolveIconSet(IconNerd)
-	if got.NerdFamily["hack"] != "󰌌" {
-		t.Fatalf("resolveIconSet(IconNerd).NerdFamily[hack] = %q, want 󰌌", got.NerdFamily["hack"])
-	}
-	if got.NerdFamily["jetbrainsmono"] == "" {
-		t.Fatal("resolveIconSet(IconNerd).NerdFamily[jetbrainsmono] is empty, want a glyph")
-	}
-}
-
-func TestResolveIconSetASCIIReturnsASCIIMode(t *testing.T) {
-	got := resolveIconSet(IconASCII)
-	if got.Mode != IconASCII {
-		t.Fatalf("resolveIconSet(IconASCII).Mode = %q, want %q", got.Mode, IconASCII)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveIconSet(tt.mode)
+			if got.Checked != tt.wantChecked {
+				t.Fatalf("resolveIconSet(%q).Checked = %q, want %q", tt.mode, got.Checked, tt.wantChecked)
+			}
+			if got.Unchecked != tt.wantUnchecked {
+				t.Fatalf("resolveIconSet(%q).Unchecked = %q, want %q", tt.mode, got.Unchecked, tt.wantUnchecked)
+			}
+		})
 	}
 }
 
-func TestResolveIconSetASCIIHasAsciiCheckboxes(t *testing.T) {
-	got := resolveIconSet(IconASCII)
-	if got.Checked != "[x]" {
-		t.Fatalf("resolveIconSet(IconASCII).Checked = %q, want [x]", got.Checked)
+func TestResolveIconSetNerdFamilyGlyphs(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      IconMode
+		key       string
+		wantValue string
+	}{
+		{name: "nerd hack", mode: IconNerd, key: "hack", wantValue: "󰌌"},
+		{name: "nerd jetbrains", mode: IconNerd, key: "jetbrainsmono", wantValue: nerdFamilyGlyphs["jetbrainsmono"]},
 	}
-	if got.Unchecked != "[ ]" {
-		t.Fatalf("resolveIconSet(IconASCII).Unchecked = %q, want [ ]", got.Unchecked)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveIconSet(tt.mode)
+			if got.NerdFamily[tt.key] != tt.wantValue {
+				t.Fatalf("resolveIconSet(%q).NerdFamily[%s] = %q, want %q", tt.mode, tt.key, got.NerdFamily[tt.key], tt.wantValue)
+			}
+		})
 	}
 }
 
@@ -54,23 +74,6 @@ func TestResolveIconSetASCIIHasEmptyNerdFamily(t *testing.T) {
 	got := resolveIconSet(IconASCII)
 	if len(got.NerdFamily) != 0 {
 		t.Fatalf("resolveIconSet(IconASCII).NerdFamily len = %d, want 0 (ASCII has no glyph map)", len(got.NerdFamily))
-	}
-}
-
-func TestResolveIconSetUnicodeReturnsUnicodeMode(t *testing.T) {
-	got := resolveIconSet(IconUnicode)
-	if got.Mode != IconUnicode {
-		t.Fatalf("resolveIconSet(IconUnicode).Mode = %q, want %q", got.Mode, IconUnicode)
-	}
-}
-
-func TestResolveIconSetUnicodeHasUnicodeCheckboxes(t *testing.T) {
-	got := resolveIconSet(IconUnicode)
-	if got.Checked != "☑" {
-		t.Fatalf("resolveIconSet(IconUnicode).Checked = %q, want ☑", got.Checked)
-	}
-	if got.Unchecked != "☐" {
-		t.Fatalf("resolveIconSet(IconUnicode).Unchecked = %q, want ☐", got.Unchecked)
 	}
 }
 

@@ -58,11 +58,14 @@ agents. Over-process is itself a finding.
    auto-applying them.
 
 5. **Implement as small, individually-green commits.** Order commits so each is
-   independently testable: shared/foundational refactors first, then
-   correctness fixes, then features, then polish. After **every** commit run
-   build + vet + tests (and `-race` if any concurrency changed). When a change
-   alters an intended contract, update the test to the new contract and say so
-   in the commit body. Use Conventional Commits + a `Co-Authored-By` trailer.
+	   independently testable: shared/foundational refactors first, then
+	   correctness fixes, then features, then polish. After **every** commit run
+	   build + vet + tests (and `-race` if any concurrency changed). When a change
+	   alters an intended contract, update the test to the new contract and say so
+	   in the commit body. Update relevant docs (`README.md`, `MEMORY.md`,
+	   `AGENTS.md`, etc.) when user-facing behavior, architecture, or contracts
+	   change, and include the rationale in the commit body. Use Conventional
+	   Commits + a `Co-Authored-By` trailer.
 
 6. **Track and report.** Use the task list for phases. Report outcomes
    faithfully: coverage deltas, what was deferred and why, what remains.

@@ -39,7 +39,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-latest-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:

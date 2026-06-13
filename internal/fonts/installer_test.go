@@ -720,12 +720,13 @@ func TestSyncWriterSerializesWrites(t *testing.T) {
 
 	const workers = 20
 	done := make(chan struct{})
+	errs := make(chan error, workers)
 	for range workers {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for range 50 {
 				if _, err := sw.Write([]byte("x")); err != nil {
-					t.Errorf("syncWriter.Write() error = %v", err)
+					errs <- err
 					return
 				}
 			}
@@ -733,6 +734,10 @@ func TestSyncWriterSerializesWrites(t *testing.T) {
 	}
 	for range workers {
 		<-done
+	}
+	close(errs)
+	for err := range errs {
+		t.Errorf("syncWriter.Write() error = %v", err)
 	}
 	if buf.Len() != workers*50 {
 		t.Fatalf("syncWriter captured %d bytes, want %d", buf.Len(), workers*50)

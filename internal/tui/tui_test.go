@@ -175,15 +175,21 @@ func TestUpdateFamilyKeyBackNavigation(t *testing.T) {
 }
 
 func TestUpdateQuitKeysCancel(t *testing.T) {
-	for _, key := range []tea.KeyMsg{
-		{Type: tea.KeyRunes, Runes: []rune("q")},
-		{Type: tea.KeyCtrlC},
-	} {
-		m := newModel([]nerdfonts.Release{{TagName: "v3.4.0", Families: []string{"Hack"}}}, "/tmp", true, IconAuto)
-		next, _ := m.Update(key)
-		if got := requireModel(t, next); !got.cancelled {
-			t.Fatalf("key %v: cancelled = false, want true", key)
-		}
+	tests := []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{name: "q", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}},
+		{name: "ctrl-c", key: tea.KeyMsg{Type: tea.KeyCtrlC}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel([]nerdfonts.Release{{TagName: "v3.4.0", Families: []string{"Hack"}}}, "/tmp", true, IconAuto)
+			next, _ := m.Update(tt.key)
+			if got := requireModel(t, next); !got.cancelled {
+				t.Fatalf("cancelled = false, want true")
+			}
+		})
 	}
 }
 
