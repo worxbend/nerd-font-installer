@@ -31,11 +31,15 @@ func TestRunPrintsVersion(t *testing.T) {
 }
 
 func TestRunPrintsFontNamesForLatestRelease(t *testing.T) {
+	t.Setenv(configEnvVar, "") // keep hermetic against a stray ambient override
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	installCalled := false
 
 	code := run(t.Context(), []string{"--font-names"}, strings.NewReader(""), &stdout, &stderr, dependencies{
+		discoverConfig: func() (config.Source, bool, error) {
+			return config.Source{}, false, nil
+		},
 		listReleases: func(context.Context) ([]nerdfonts.Release, error) {
 			return []nerdfonts.Release{
 				{TagName: "v3.4.0", Families: []string{"Hack", "JetBrainsMono"}},
@@ -145,6 +149,61 @@ func TestRunErrorsWhenNoConfigAndNonInteractive(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no config found") {
 		t.Fatalf("stderr = %q, want no config error", stderr.String())
+	}
+}
+
+func TestRunLoadsConfigFromEnvOverride(t *testing.T) {
+	t.Setenv(configEnvVar, "/env/fonts.yaml")
+	var stderr bytes.Buffer
+	var gotPath string
+	installed := false
+
+	code := run(t.Context(), nil, strings.NewReader(""), &bytes.Buffer{}, &stderr, dependencies{
+		loadConfig: func(path string) (config.Config, error) {
+			gotPath = path
+			return config.Config{Release: "v3.4.0", Destination: "/tmp/fonts", Families: []string{"Hack"}}, nil
+		},
+		discoverConfig: func() (config.Source, bool, error) {
+			t.Fatal("discovery must not run when the env override is set")
+			return config.Source{}, false, nil
+		},
+		installFonts: func(context.Context, fonts.Options) error {
+			installed = true
+			return nil
+		},
+		isTerminal: func(io.Reader, io.Writer) bool { return false },
+	})
+	if code != 0 {
+		t.Fatalf("run() code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if gotPath != "/env/fonts.yaml" {
+		t.Fatalf("loaded path = %q, want the env override", gotPath)
+	}
+	if !installed {
+		t.Fatal("install should have run with the env config")
+	}
+}
+
+func TestRunFontNamesHonorsDiscoveredConfig(t *testing.T) {
+	t.Setenv(configEnvVar, "")
+	var stdout bytes.Buffer
+
+	code := run(t.Context(), []string{"--font-names"}, strings.NewReader(""), &stdout, &bytes.Buffer{}, dependencies{
+		discoverConfig: func() (config.Source, bool, error) {
+			return config.Source{Path: "/found.yaml", Config: config.Config{Release: "v3.3.0", Destination: "/tmp", Families: []string{"Hack"}}}, true, nil
+		},
+		listReleases: func(context.Context) ([]nerdfonts.Release, error) {
+			return []nerdfonts.Release{
+				{TagName: "v3.4.0", Families: []string{"Hack"}},
+				{TagName: "v3.3.0", Families: []string{"FiraCode"}},
+			}, nil
+		},
+	})
+	if code != 0 {
+		t.Fatalf("run() code = %d, want 0", code)
+	}
+	if !strings.HasPrefix(stdout.String(), "# v3.3.0\n") {
+		t.Fatalf("stdout = %q, want discovered release v3.3.0", stdout.String())
 	}
 }
 

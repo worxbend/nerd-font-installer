@@ -25,6 +25,24 @@ var (
 	errNoConfig  = errors.New("no config found")
 )
 
+// configEnvVar names an environment variable holding a config path. It is
+// honored like --config (highest priority after the explicit flag), which suits
+// dotfiles, CI, and containers.
+const configEnvVar = "NERDFONT_CONFIG"
+
+// effectiveConfigPath resolves which config path to load and whether it is an
+// explicit selection: the --config flag wins, then $NERDFONT_CONFIG, otherwise
+// the caller falls back to discovery.
+func effectiveConfigPath(configPath string, explicit bool) (string, bool) {
+	if explicit {
+		return configPath, true
+	}
+	if env := strings.TrimSpace(os.Getenv(configEnvVar)); env != "" {
+		return env, true
+	}
+	return configPath, false
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -156,12 +174,16 @@ func printFontNames(
 	deps dependencies,
 ) error {
 	release := nerdfonts.Latest
-	if explicitConfig {
-		cfg, err := deps.loadConfig(configPath)
+	if path, explicit := effectiveConfigPath(configPath, explicitConfig); explicit {
+		cfg, err := deps.loadConfig(path)
 		if err != nil {
-			return fmt.Errorf("load config %s: %w", configPath, err)
+			return fmt.Errorf("load config %s: %w", path, err)
 		}
 		release = cfg.Release
+	} else if source, found, err := deps.discoverConfig(); err != nil {
+		return err
+	} else if found {
+		release = source.Config.Release
 	}
 
 	releases, err := deps.listReleases(ctx)
@@ -178,6 +200,16 @@ func printFontNames(
 		_, _ = fmt.Fprintf(stdout, "  - %s\n", family)
 	}
 	return nil
+}
+
+// noConfigError builds the "no config found" message from the live discovery
+// paths so it stays in sync with DefaultPaths and is correct per-OS.
+func noConfigError() error {
+	hint := fmt.Sprintf("pass --config or set %s", configEnvVar)
+	if paths, err := config.DefaultPaths(); err == nil && len(paths) > 0 {
+		hint = fmt.Sprintf("pass --config, set %s, or create one of: %s", configEnvVar, strings.Join(paths, ", "))
+	}
+	return fmt.Errorf("%w; %s", errNoConfig, hint)
 }
 
 func selectRelease(releases []nerdfonts.Release, release string) (nerdfonts.Release, error) {
@@ -204,10 +236,10 @@ func resolveConfig(
 	stderr io.Writer,
 	deps dependencies,
 ) (config.Config, error) {
-	if explicitConfig {
-		cfg, err := deps.loadConfig(configPath)
+	if path, explicit := effectiveConfigPath(configPath, explicitConfig); explicit {
+		cfg, err := deps.loadConfig(path)
 		if err != nil {
-			return config.Config{}, fmt.Errorf("load config %s: %w", configPath, err)
+			return config.Config{}, fmt.Errorf("load config %s: %w", path, err)
 		}
 		return cfg, nil
 	}
@@ -222,10 +254,7 @@ func resolveConfig(
 	}
 
 	if !terminal {
-		return config.Config{}, fmt.Errorf(
-			"%w; pass --config or create ~/.nerd-config.yaml, ~/.config/nerd-config-installer/config.yaml, or config.yaml next to the binary",
-			errNoConfig,
-		)
+		return config.Config{}, noConfigError()
 	}
 
 	_, _ = fmt.Fprintln(stderr, "No config found. Starting interactive mode...")

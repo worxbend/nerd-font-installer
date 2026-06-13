@@ -343,12 +343,17 @@ doubt.
 
 ## Where Config Files Are Found
 
-When `--config` is not provided, the tool checks:
+When `--config` is not provided, the tool checks the `NERDFONT_CONFIG`
+environment variable, then the following locations in order:
 
 1. `~/.nerd-config.yaml`
 2. `~/.config/nerd-config-installer/config.yaml`
 3. `config.yaml` next to the binary
 4. `nerd-config.yaml` next to the binary
+
+Set `NERDFONT_CONFIG=/path/to/fonts.yaml` to point at a config without passing
+`--config` every time — handy in dotfiles, CI, and containers. It is honored by
+`--font-names` as well.
 
 The recommended location is:
 
