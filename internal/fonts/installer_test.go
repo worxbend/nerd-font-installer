@@ -577,6 +577,283 @@ type errorString string
 
 func (e errorString) Error() string { return string(e) }
 
+// Unit tests for ChecksumURL.
+
+func TestChecksumURLLatest(t *testing.T) {
+	got := ChecksumURL("latest")
+	want := "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/SHA-256.txt"
+	if got != want {
+		t.Fatalf("ChecksumURL(\"latest\") = %q, want %q", got, want)
+	}
+}
+
+func TestChecksumURLEmptyTreatedAsLatest(t *testing.T) {
+	got := ChecksumURL("")
+	want := "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/SHA-256.txt"
+	if got != want {
+		t.Fatalf("ChecksumURL(\"\") = %q, want %q", got, want)
+	}
+}
+
+func TestChecksumURLVersionedRelease(t *testing.T) {
+	got := ChecksumURL("v3.4.0")
+	want := "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/SHA-256.txt"
+	if got != want {
+		t.Fatalf("ChecksumURL(\"v3.4.0\") = %q, want %q", got, want)
+	}
+}
+
+func TestChecksumURLEscapesRelease(t *testing.T) {
+	got := ChecksumURL("release candidate")
+	want := "https://github.com/ryanoasis/nerd-fonts/releases/download/release%20candidate/SHA-256.txt"
+	if got != want {
+		t.Fatalf("ChecksumURL(\"release candidate\") = %q, want %q", got, want)
+	}
+}
+
+// Unit tests for fetchChecksums.
+
+func TestFetchChecksumsParsesTwoColumnFormat(t *testing.T) {
+	manifest := "abc123  Hack.zip\ndef456  JetBrainsMono.ZIP\nskipped\n"
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(manifest)),
+			}, nil
+		}),
+	}
+
+	var stderr strings.Builder
+	got := fetchChecksums(t.Context(), client, "v3.4.0", &stderr)
+
+	if got["Hack"] != "abc123" {
+		t.Fatalf("checksums[Hack] = %q, want abc123", got["Hack"])
+	}
+	if got["JetBrainsMono"] != "def456" {
+		t.Fatalf("checksums[JetBrainsMono] = %q, want def456", got["JetBrainsMono"])
+	}
+	if _, ok := got["skipped"]; ok {
+		t.Fatal("single-column line should not produce an entry")
+	}
+}
+
+func TestFetchChecksumsNormalizesDigestToLower(t *testing.T) {
+	manifest := "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789  Hack.zip\n"
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(manifest)),
+			}, nil
+		}),
+	}
+	got := fetchChecksums(t.Context(), client, "latest", &strings.Builder{})
+	for _, v := range got {
+		if v != strings.ToLower(v) {
+			t.Fatalf("digest %q was not lowercased", v)
+		}
+	}
+}
+
+func TestFetchChecksumsReturnsNilOnNon2xx(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Status:     "404 Not Found",
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		}),
+	}
+	var stderr strings.Builder
+	got := fetchChecksums(t.Context(), client, "latest", &stderr)
+	if got != nil {
+		t.Fatalf("fetchChecksums() on 404 = %v, want nil (best-effort)", got)
+	}
+	if !strings.Contains(stderr.String(), "unavailable") {
+		t.Fatalf("stderr = %q, want unavailable warning", stderr.String())
+	}
+}
+
+func TestFetchChecksumsReturnsNilOnTransportError(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errTransport
+		}),
+	}
+	var stderr strings.Builder
+	got := fetchChecksums(t.Context(), client, "latest", &stderr)
+	if got != nil {
+		t.Fatalf("fetchChecksums() on transport error = %v, want nil", got)
+	}
+	if !strings.Contains(stderr.String(), "unavailable") {
+		t.Fatalf("stderr = %q, want unavailable warning", stderr.String())
+	}
+}
+
+func TestFetchChecksumsIgnoresNonZipLines(t *testing.T) {
+	manifest := "aaa111  Hack.tar.gz\nbbb222  Hack.zip\nccc333  README.md\n"
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(manifest)),
+			}, nil
+		}),
+	}
+	got := fetchChecksums(t.Context(), client, "v3.4.0", &strings.Builder{})
+	if len(got) != 1 || got["Hack"] != "bbb222" {
+		t.Fatalf("fetchChecksums() = %v, want only Hack=bbb222", got)
+	}
+}
+
+// Unit tests for syncWriter.
+
+func TestSyncWriterSerializesWrites(t *testing.T) {
+	// Verify that concurrent writes do not panic and all bytes are captured.
+	var buf bytes.Buffer
+	sw := &syncWriter{w: &buf}
+
+	const workers = 20
+	done := make(chan struct{})
+	for range workers {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for range 50 {
+				if _, err := sw.Write([]byte("x")); err != nil {
+					t.Errorf("syncWriter.Write() error = %v", err)
+					return
+				}
+			}
+		}()
+	}
+	for range workers {
+		<-done
+	}
+	if buf.Len() != workers*50 {
+		t.Fatalf("syncWriter captured %d bytes, want %d", buf.Len(), workers*50)
+	}
+}
+
+// Unit tests for dedupeFamilies.
+
+func TestDedupeFamiliesRemovesDuplicates(t *testing.T) {
+	got := dedupeFamilies([]string{"Hack", "JetBrainsMono", "Hack", "FiraCode", "JetBrainsMono"})
+	want := []string{"Hack", "JetBrainsMono", "FiraCode"}
+	if len(got) != len(want) {
+		t.Fatalf("dedupeFamilies() len = %d, want %d; got %v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("dedupeFamilies()[%d] = %q, want %q", i, got[i], w)
+		}
+	}
+}
+
+func TestDedupeFamiliesPreservesOrder(t *testing.T) {
+	input := []string{"Z", "A", "M", "A", "Z"}
+	got := dedupeFamilies(input)
+	want := []string{"Z", "A", "M"}
+	if len(got) != len(want) || got[0] != "Z" || got[1] != "A" || got[2] != "M" {
+		t.Fatalf("dedupeFamilies() = %v, want order preserved: %v", got, want)
+	}
+}
+
+func TestDedupeFamiliesReturnsEmptyForEmpty(t *testing.T) {
+	got := dedupeFamilies(nil)
+	if len(got) != 0 {
+		t.Fatalf("dedupeFamilies(nil) = %v, want empty", got)
+	}
+}
+
+func TestDedupeFamiliesDoesNotMutateInput(t *testing.T) {
+	input := []string{"Hack", "Hack"}
+	_ = dedupeFamilies(input)
+	if len(input) != 2 {
+		t.Fatal("dedupeFamilies mutated its input slice")
+	}
+}
+
+// Regression: install with duplicate families should install each family once.
+func TestInstallDeduplicatesFamilies(t *testing.T) {
+	zipBytes := fontZip(t)
+	calls := 0
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if strings.HasSuffix(req.URL.Path, "SHA-256.txt") {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Body:       io.NopCloser(strings.NewReader("")),
+				}, nil
+			}
+			calls++
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(bytes.NewReader(zipBytes)),
+			}, nil
+		}),
+	}
+
+	err := Install(t.Context(), Options{
+		Release:     "latest",
+		Destination: filepath.Join(t.TempDir(), "fonts"),
+		Families:    []string{"Hack", "Hack", "Hack"},
+		HTTPClient:  client,
+		Stderr:      io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("download calls = %d, want 1 (duplicates collapsed)", calls)
+	}
+}
+
+// Boundary: download that exceeds maxDownloadBytes via Content-Length header.
+func TestInstallRejectsOversizeDownloadViaContentLength(t *testing.T) {
+	prev := maxDownloadBytes
+	maxDownloadBytes = 10
+	t.Cleanup(func() { maxDownloadBytes = prev })
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if strings.HasSuffix(req.URL.Path, "SHA-256.txt") {
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Status:     "404 Not Found",
+					Body:       io.NopCloser(strings.NewReader("")),
+				}, nil
+			}
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				ContentLength: 9999999,
+				Body:          io.NopCloser(strings.NewReader("")),
+			}, nil
+		}),
+	}
+
+	err := Install(t.Context(), Options{
+		Release:     "latest",
+		Destination: filepath.Join(t.TempDir(), "fonts"),
+		Families:    []string{"Hack"},
+		HTTPClient:  client,
+		Stderr:      io.Discard,
+	})
+	if err == nil {
+		t.Fatal("Install() error = nil, want oversize rejection via Content-Length")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("Install() error = %v, want size-limit message", err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

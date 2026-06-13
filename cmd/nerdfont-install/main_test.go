@@ -313,3 +313,218 @@ func TestRunInteractiveCancellationIsSuccess(t *testing.T) {
 		t.Fatalf("TUI icons = %q, want %q", gotIcons, tui.IconNerd)
 	}
 }
+
+// Unit tests for effectiveConfigPath.
+
+func TestEffectiveConfigPathFlagWins(t *testing.T) {
+	t.Setenv(configEnvVar, "/env/fonts.yaml")
+	got, explicit := effectiveConfigPath("/flag/fonts.yaml", true)
+	if got != "/flag/fonts.yaml" || !explicit {
+		t.Fatalf("effectiveConfigPath = %q, %v; want /flag/fonts.yaml, true (flag wins over env)", got, explicit)
+	}
+}
+
+func TestEffectiveConfigPathEnvOverride(t *testing.T) {
+	t.Setenv(configEnvVar, "/env/fonts.yaml")
+	got, explicit := effectiveConfigPath("", false)
+	if got != "/env/fonts.yaml" || !explicit {
+		t.Fatalf("effectiveConfigPath = %q, %v; want /env/fonts.yaml, true", got, explicit)
+	}
+}
+
+func TestEffectiveConfigPathEnvTrimmed(t *testing.T) {
+	t.Setenv(configEnvVar, "  /trimmed/fonts.yaml  ")
+	got, explicit := effectiveConfigPath("", false)
+	if got != "/trimmed/fonts.yaml" || !explicit {
+		t.Fatalf("effectiveConfigPath = %q, %v; want trimmed env path, true", got, explicit)
+	}
+}
+
+func TestEffectiveConfigPathEmptyEnvFallsThrough(t *testing.T) {
+	t.Setenv(configEnvVar, "")
+	got, explicit := effectiveConfigPath("/default", false)
+	if got != "/default" || explicit {
+		t.Fatalf("effectiveConfigPath = %q, %v; want /default, false (empty env is no override)", got, explicit)
+	}
+}
+
+func TestEffectiveConfigPathWhitespaceOnlyEnvFallsThrough(t *testing.T) {
+	t.Setenv(configEnvVar, "   ")
+	got, explicit := effectiveConfigPath("/fallback", false)
+	if got != "/fallback" || explicit {
+		t.Fatalf("effectiveConfigPath = %q, %v; want /fallback, false (whitespace-only env is not an override)", got, explicit)
+	}
+}
+
+// Unit tests for exitCodeFor.
+
+func TestExitCodeForReleaseNotFound(t *testing.T) {
+	err := nerdfonts.ReleaseNotFoundError{Tag: "v9.9.9"}
+	if got := exitCodeFor(err); got != 2 {
+		t.Fatalf("exitCodeFor(ReleaseNotFoundError) = %d, want 2", got)
+	}
+}
+
+func TestExitCodeForWrappedReleaseNotFound(t *testing.T) {
+	wrapped := errors.Join(errors.New("outer"), nerdfonts.ReleaseNotFoundError{Tag: "v9.9.9"})
+	if got := exitCodeFor(wrapped); got != 2 {
+		t.Fatalf("exitCodeFor(wrapped ReleaseNotFoundError) = %d, want 2", got)
+	}
+}
+
+func TestExitCodeForNoReleases(t *testing.T) {
+	if got := exitCodeFor(nerdfonts.ErrNoReleases); got != 2 {
+		t.Fatalf("exitCodeFor(ErrNoReleases) = %d, want 2", got)
+	}
+}
+
+func TestExitCodeForNoConfig(t *testing.T) {
+	// errNoConfig is unexported; verify exitCodeFor handles a wrapped sentinel.
+	err := noConfigError()
+	if got := exitCodeFor(err); got != 2 {
+		t.Fatalf("exitCodeFor(noConfigError()) = %d, want 2", got)
+	}
+}
+
+func TestExitCodeForRuntimeError(t *testing.T) {
+	if got := exitCodeFor(errors.New("network failure")); got != 1 {
+		t.Fatalf("exitCodeFor(generic error) = %d, want 1", got)
+	}
+}
+
+// Unit tests for noConfigError.
+
+func TestNoConfigErrorWrapsErrNoConfig(t *testing.T) {
+	err := noConfigError()
+	if !errors.Is(err, errNoConfig) {
+		t.Fatalf("noConfigError() does not wrap errNoConfig: %v", err)
+	}
+}
+
+func TestNoConfigErrorMentionsEnvVar(t *testing.T) {
+	err := noConfigError()
+	if !strings.Contains(err.Error(), configEnvVar) {
+		t.Fatalf("noConfigError() = %q, want mention of %s", err.Error(), configEnvVar)
+	}
+}
+
+func TestNoConfigErrorMentionsPassConfig(t *testing.T) {
+	err := noConfigError()
+	if !strings.Contains(err.Error(), "--config") {
+		t.Fatalf("noConfigError() = %q, want mention of --config flag", err.Error())
+	}
+}
+
+// Unit tests for selectRelease.
+
+func TestSelectReleaseReturnsFirstForLatest(t *testing.T) {
+	releases := []nerdfonts.Release{
+		{TagName: "v3.4.0"},
+		{TagName: "v3.3.0"},
+	}
+	got, err := selectRelease(releases, nerdfonts.Latest)
+	if err != nil || got.TagName != "v3.4.0" {
+		t.Fatalf("selectRelease(%q) = %q, %v; want v3.4.0, nil", nerdfonts.Latest, got.TagName, err)
+	}
+}
+
+func TestSelectReleaseReturnsFirstForEmptyRelease(t *testing.T) {
+	releases := []nerdfonts.Release{{TagName: "v3.4.0"}}
+	got, err := selectRelease(releases, "")
+	if err != nil || got.TagName != "v3.4.0" {
+		t.Fatalf("selectRelease(\"\") = %q, %v; want v3.4.0, nil", got.TagName, err)
+	}
+}
+
+func TestSelectReleaseFindsNamedTag(t *testing.T) {
+	releases := []nerdfonts.Release{
+		{TagName: "v3.4.0"},
+		{TagName: "v3.3.0"},
+	}
+	got, err := selectRelease(releases, "v3.3.0")
+	if err != nil || got.TagName != "v3.3.0" {
+		t.Fatalf("selectRelease(v3.3.0) = %q, %v; want v3.3.0, nil", got.TagName, err)
+	}
+}
+
+func TestSelectReleaseReturnsNotFoundErrorForMissingTag(t *testing.T) {
+	releases := []nerdfonts.Release{{TagName: "v3.4.0"}}
+	_, err := selectRelease(releases, "v9.9.9")
+	var notFound nerdfonts.ReleaseNotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("selectRelease(missing) error type = %T, want ReleaseNotFoundError; err = %v", err, err)
+	}
+	if notFound.Tag != "v9.9.9" {
+		t.Fatalf("ReleaseNotFoundError.Tag = %q, want v9.9.9", notFound.Tag)
+	}
+}
+
+func TestSelectReleaseReturnsErrNoReleasesForEmptyList(t *testing.T) {
+	_, err := selectRelease(nil, nerdfonts.Latest)
+	if !errors.Is(err, nerdfonts.ErrNoReleases) {
+		t.Fatalf("selectRelease(nil) error = %v, want ErrNoReleases", err)
+	}
+}
+
+func TestSelectReleaseReturnsErrNoReleasesForEmptySlice(t *testing.T) {
+	_, err := selectRelease([]nerdfonts.Release{}, "v3.4.0")
+	if !errors.Is(err, nerdfonts.ErrNoReleases) {
+		t.Fatalf("selectRelease(empty slice) error = %v, want ErrNoReleases", err)
+	}
+}
+
+// Regression: font-names with no explicit config and no discovered config must
+// fall back to listReleases for the latest release, not fail.
+func TestRunFontNamesWithNoConfigListsLatest(t *testing.T) {
+	t.Setenv(configEnvVar, "")
+	var stdout bytes.Buffer
+
+	code := run(t.Context(), []string{"--font-names"}, strings.NewReader(""), &stdout, &bytes.Buffer{}, dependencies{
+		discoverConfig: func() (config.Source, bool, error) {
+			return config.Source{}, false, nil
+		},
+		listReleases: func(context.Context) ([]nerdfonts.Release, error) {
+			return []nerdfonts.Release{
+				{TagName: "v3.5.0", Families: []string{"Inter"}},
+			}, nil
+		},
+	})
+	if code != 0 {
+		t.Fatalf("run() code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "v3.5.0") {
+		t.Fatalf("stdout = %q, want latest release v3.5.0", stdout.String())
+	}
+}
+
+// Regression: the env override must also flow through --font-names, not only
+// the install path.
+func TestRunFontNamesHonorsEnvOverride(t *testing.T) {
+	t.Setenv(configEnvVar, "/env/fonts.yaml")
+	var stdout bytes.Buffer
+
+	code := run(t.Context(), []string{"--font-names"}, strings.NewReader(""), &stdout, &bytes.Buffer{}, dependencies{
+		loadConfig: func(path string) (config.Config, error) {
+			if path != "/env/fonts.yaml" {
+				t.Fatalf("loadConfig path = %q, want /env/fonts.yaml", path)
+			}
+			return config.Config{Release: "v3.2.0", Destination: "/tmp", Families: []string{"Hack"}}, nil
+		},
+		discoverConfig: func() (config.Source, bool, error) {
+			t.Fatal("discoverConfig must not run when env override is set")
+			return config.Source{}, false, nil
+		},
+		listReleases: func(context.Context) ([]nerdfonts.Release, error) {
+			return []nerdfonts.Release{
+				{TagName: "v3.4.0", Families: []string{"Hack"}},
+				{TagName: "v3.2.0", Families: []string{"FiraCode"}},
+			}, nil
+		},
+	})
+	if code != 0 {
+		t.Fatalf("run() code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "v3.2.0") {
+		t.Fatalf("stdout = %q, want env release v3.2.0", stdout.String())
+	}
+}
