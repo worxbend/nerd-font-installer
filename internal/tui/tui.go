@@ -249,6 +249,15 @@ func (m loadingModel) View() string {
 	return fmt.Sprintf("%s %s\n", m.spinner.View(), accentStyle.Render(m.message))
 }
 
+// Run presents an interactive TUI allowing the user to choose a Nerd Fonts release and one or more font families,
+// and returns the resulting installation choices or a cancellation indicator.
+//
+// If `releases` is empty Run returns an error. `opts.Destination` is used as the install path; when blank it
+// defaults to "~/.local/share/fonts/NerdFonts". On successful completion (user confirms selection) the returned
+// Result contains a config.Config with the chosen release tag, destination, refresh flag, and the sorted list of
+// selected families. If the user cancels or finishes without selecting any families the returned Result has
+// Cancelled set to true. Any runtime error from running the TUI or an unexpected final model type is returned as
+// an error.
 func Run(ctx context.Context, releases []nerdfonts.Release, opts Options) (Result, error) {
 	if len(releases) == 0 {
 		return Result{}, fmt.Errorf("no Nerd Fonts releases available")
@@ -548,6 +557,7 @@ func (m model) iconForFamily(family string) string {
 	return m.icons.Font
 }
 
+// - "Nerd Font patched" otherwise
 func familyHint(family string) string {
 	key := strings.ToLower(family)
 	switch {
@@ -565,7 +575,10 @@ func familyHint(family string) string {
 // setListSize clamps to positive dimensions (bubbles' list.SetSize panics on a
 // zero/negative size) and recovers as a belt-and-suspenders guard against any
 // other size-related panic from the dependency, returning the unresized model
-// rather than crashing the TUI on a pathological terminal size.
+// setListSize sets the provided list.Model's size to the given width and height and returns the model.
+// It clamps width and height to at least 1 and recovers from any panic raised by the underlying
+// SetSize call, returning the original model if a panic occurs to avoid crashing the TUI on
+// pathological terminal sizes.
 func setListSize(model list.Model, width, height int) (resized list.Model) {
 	if width < 1 {
 		width = 1

@@ -18,7 +18,13 @@ import (
 
 // Validate reports an error if family is not safe to use as a single path
 // component. A nil result guarantees that family is non-empty, contains no path
-// separators or NUL bytes, is not absolute, and equals its own filepath.Base.
+// Validate checks that the provided font family name is safe to use as exactly one
+// filesystem path component and as a URL path segment.
+//
+// It rejects empty names, the reserved directory names "." and "..", any path
+// separators ('/' or '\'), NUL bytes, absolute paths, and any value that is not
+// identical to filepath.Base(family). On success it returns nil; on failure it
+// returns a descriptive error.
 func Validate(family string) error {
 	switch {
 	case family == "":

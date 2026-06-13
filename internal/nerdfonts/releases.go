@@ -99,6 +99,7 @@ func (c Client) Releases(ctx context.Context) ([]Release, error) {
 	return releases, nil
 }
 
+// (i.e., len of the decoded top-level array) and is intended for pagination logic.
 func decodeReleases(resp *http.Response) ([]Release, int, error) {
 	defer func() {
 		_ = resp.Body.Close()
@@ -148,6 +149,7 @@ func decodeReleases(resp *http.Response) ([]Release, int, error) {
 	return releases, len(apiReleases), nil
 }
 
+// extracted base name (case-sensitive).
 func familiesFromAssets(assets []string) []string {
 	seen := map[string]bool{}
 	families := []string{}

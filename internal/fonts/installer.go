@@ -64,6 +64,20 @@ var (
 	pathStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("219"))
 )
 
+// Install downloads and installs the requested Nerd Font families into the destination directory.
+//
+// Install validates and normalizes the provided Options, expands and creates the destination root,
+// deduplicates family names, and then downloads and extracts each family concurrently (bounded by
+// internal concurrency limits). For each family the function enforces download and archive size limits,
+// applies a per-family timeout, verifies the downloaded archive against the release's published
+// SHA-256 manifest when that manifest is available (a missing manifest logs a warning and installation
+// proceeds unverified; a checksum mismatch is fatal), and atomically replaces the destination family
+// directory on success.
+//
+// If Options.DryRun is true, Install prints planned actions to Options.Stdout and returns without
+// performing network or filesystem changes. If Options.RefreshFontCache is true, Install runs a font
+// cache refresh after successful installs. Install returns an error if any fatal validation, download,
+// extraction, verification, or replacement step fails.
 func Install(ctx context.Context, opts Options) error {
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
@@ -165,6 +179,8 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
+// dedupeFamilies returns a new slice containing the distinct family names from the
+// provided slice, preserving the first-seen order.
 func dedupeFamilies(families []string) []string {
 	seen := make(map[string]bool, len(families))
 	unique := make([]string, 0, len(families))
@@ -178,6 +194,9 @@ func dedupeFamilies(families []string) []string {
 	return unique
 }
 
+// normalizeOptions normalizes whitespace in the provided Options and returns a cleaned copy.
+// It trims surrounding whitespace from Release and Destination, makes a shallow copy of the Families
+// slice to avoid mutating the caller's slice, and trims surrounding whitespace from each family entry.
 func normalizeOptions(opts Options) Options {
 	opts.Release = strings.TrimSpace(opts.Release)
 	opts.Destination = strings.TrimSpace(opts.Destination)
@@ -188,6 +207,8 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
+// validateOptions checks that Options contains at least one family and that each family name is valid.
+// It returns an error if no families are provided or if any family fails validation; the first validation error encountered is returned.
 func validateOptions(opts Options) error {
 	if len(opts.Families) == 0 {
 		return fmt.Errorf("at least one Nerd Font family is required")
@@ -200,6 +221,15 @@ func validateOptions(opts Options) error {
 	return nil
 }
 
+// installFamily downloads the Nerd Font ZIP for a single family from the specified
+// release, verifies the download when `wantChecksum` is non-empty, extracts font
+// files into a temporary staging directory, and atomically replaces `root/<family>`
+// with the staged contents.
+//
+// The operation is bounded by a per-family timeout and enforces configured download
+// and archive size limits. Temporary files and staging directories are removed on
+// completion or error. Progress and final status are written to the provided
+// `stderr` writer.
 func installFamily(ctx context.Context, client *http.Client, release, family, root, wantChecksum string, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, perDownloadTimeout)
 	defer cancel()
@@ -278,7 +308,7 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 }
 
 // ChecksumURL returns the URL of the SHA-256 manifest published alongside a
-// release's font archives.
+// When release is empty or equals nerdfonts.Latest the URL targets releases/latest; otherwise it targets releases/download/<release> where <release> is path-escaped.
 func ChecksumURL(release string) string {
 	if release == "" || release == nerdfonts.Latest {
 		return "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/SHA-256.txt"
@@ -289,7 +319,14 @@ func ChecksumURL(release string) string {
 // fetchChecksums downloads and parses the release's SHA-256 manifest into a map
 // of family name to lowercase hex digest. Verification is best-effort: if the
 // manifest cannot be fetched it warns and returns nil so installs proceed
-// unverified. Only a later digest mismatch (in installFamily) is fatal.
+// fetchChecksums downloads and parses the release SHA-256 manifest and returns a map
+// from font family (zip filename without extension) to the lowercase SHA-256 hex digest.
+//
+// This is a best-effort operation: if the manifest URL cannot be requested or returns a
+// non-2xx status the function writes a warning to stderr and returns nil. It only keeps
+// entries whose filename ends with `.zip` (case-insensitive). If the manifest is parsed
+// partially due to a scanner error the function warns to stderr and returns whatever
+// entries were successfully parsed.
 func fetchChecksums(ctx context.Context, client *http.Client, release string, stderr io.Writer) map[string]string {
 	checksumURL := ChecksumURL(release)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
@@ -329,10 +366,17 @@ func fetchChecksums(ctx context.Context, client *http.Client, release string, st
 	return checksums
 }
 
+// warnChecksums reports that the checksum manifest is unavailable and that installs will proceed without integrity verification.
+// It writes a single formatted warning line to the provided writer including the underlying cause.
 func warnChecksums(stderr io.Writer, cause error) {
 	_, _ = fmt.Fprintf(stderr, "%s Checksum manifest unavailable (%v); installing without integrity verification.\n", warnStyle.Render("•"), cause)
 }
 
+// ReleaseURL returns the GitHub download URL for a family's Nerd Font ZIP archive.
+//
+// When `release` is empty or equals `nerdfonts.Latest` the URL points to the
+// repository's "latest" release; otherwise it points to the specified release.
+// Both `family` and `release` are URL-escaped before being inserted into the URL.
 func ReleaseURL(release, family string) string {
 	family = url.PathEscape(family)
 	if release == "" || release == nerdfonts.Latest {
@@ -341,6 +385,11 @@ func ReleaseURL(release, family string) string {
 	return fmt.Sprintf("https://github.com/ryanoasis/nerd-fonts/releases/download/%s/%s.zip", url.PathEscape(release), family)
 }
 
+// ExtractFontZip extracts font files from the ZIP archive at path into destination.
+// It creates destination if needed, extracts only files with `.otf`, `.ttc`, or `.ttf` extensions,
+// and enforces per-file and total uncompressed size limits.
+// Returns an error if the archive cannot be opened, no font files are found, any size limits are exceeded,
+// or an extraction operation fails.
 func ExtractFontZip(path, destination string) error {
 	if err := os.MkdirAll(destination, 0o755); err != nil { //nolint:gosec // Extracted font directories need normal user/app traversal permissions.
 		return fmt.Errorf("create extraction destination %s: %w", destination, err)
@@ -383,6 +432,8 @@ func ExtractFontZip(path, destination string) error {
 	return nil
 }
 
+// isFontFile reports whether the file name's extension indicates a supported font
+// format: .otf, .ttc, or .ttf. The match is case-insensitive.
 func isFontFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".otf", ".ttc", ".ttf":
@@ -399,6 +450,12 @@ func exceedsInt64Limit(value uint64, limit int64) bool {
 	return int64(value) > limit
 }
 
+// extractZipFile extracts a single zip entry to the given destination file and enforces a maximum byte limit.
+//
+// The function copies the entry's contents to destination, ensures the written file is flushed and closed, and
+// returns an error if the copy fails, the number of bytes written exceeds limit, or flushing/closing the file fails.
+// The limit parameter is the maximum allowed number of bytes for the extracted file; any stream that produces more
+// than limit bytes will cause an error.
 func extractZipFile(file *zip.File, destination string, limit int64) error {
 	reader, err := file.Open()
 	if err != nil {
@@ -437,6 +494,15 @@ func extractZipFile(file *zip.File, destination string, limit int64) error {
 	return nil
 }
 
+// replaceDirectory atomically replaces the destination directory with the source directory,
+// using a temporary ".old" backup of the previous destination to allow rollback on failure.
+//
+// If the destination exists, it is first renamed to "<destination>.old". The source is then
+// renamed to the destination. If moving the source fails and the destination previously
+// existed, the function attempts to restore the backup. Any failure to perform the required
+// filesystem operations is returned as an error. On success the function makes a best-effort
+// attempt to remove the ".old" backup; failure to remove the backup is ignored and a
+// leftover ".old" directory is considered harmless.
 func replaceDirectory(source, destination string) error {
 	backup := destination + ".old"
 	if err := os.RemoveAll(backup); err != nil {

@@ -83,6 +83,9 @@ var unicodeIcons = iconSet{
 	NerdFamily: map[string]string{},
 }
 
+// resolveIconSet selects the iconSet appropriate for the provided IconMode.
+// IconNerd returns nerdIcons, IconASCII returns asciiIcons, and IconAuto or
+// IconUnicode return unicodeIcons (the safe default).
 func resolveIconSet(mode IconMode) iconSet {
 	switch mode {
 	case IconNerd:

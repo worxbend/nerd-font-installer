@@ -32,7 +32,13 @@ const configEnvVar = "NERDFONT_CONFIG"
 
 // effectiveConfigPath resolves which config path to load and whether it is an
 // explicit selection: the --config flag wins, then $NERDFONT_CONFIG, otherwise
-// the caller falls back to discovery.
+// effectiveConfigPath chooses which configuration path to use and reports whether
+// it was explicitly supplied.
+//
+// It prefers an explicitly provided path (explicit == true). If not explicit, it
+// uses the path from the NERDFONT_CONFIG environment variable when set (and
+// marks that as explicit). If neither applies, it returns the original
+// configPath and marks it as not explicit.
 func effectiveConfigPath(configPath string, explicit bool) (string, bool) {
 	if explicit {
 		return configPath, true
@@ -43,6 +49,8 @@ func effectiveConfigPath(configPath string, explicit bool) (string, bool) {
 	return configPath, false
 }
 
+// main is the program entry point. It creates a context canceled on SIGINT, invokes run with command-line
+// arguments and the standard streams, and exits the process with the returned status code.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -81,6 +89,8 @@ func (d dependencies) withDefaults() dependencies {
 	return d
 }
 
+// run parses CLI arguments, resolves or discovers the configuration (falling back to interactive mode when appropriate), and orchestrates font installation, returning an exit code for the process.
+// It applies default dependency implementations, handles flags (--config, --dry-run, --font-names, --icons, --version), writes diagnostics to stderr/stdout, and maps known error conditions to specific exit codes.
 func run(
 	ctx context.Context,
 	args []string,
@@ -153,7 +163,9 @@ func run(
 
 // exitCodeFor maps an error to a process exit code: 2 for user-input problems
 // the caller can correct (missing config, unknown or absent release), 1 for
-// runtime failures (network, filesystem, install).
+// exitCodeFor maps an error to the process exit code.
+// It returns 2 if the error indicates a missing configuration, no available releases,
+// or a specific release was not found; it returns 1 for all other errors.
 func exitCodeFor(err error) int {
 	var notFound nerdfonts.ReleaseNotFoundError
 	switch {
@@ -166,6 +178,12 @@ func exitCodeFor(err error) int {
 	}
 }
 
+// printFontNames writes a YAML-style list of font family names for the resolved release to stdout.
+// It resolves the release by using an explicit config path (including NERDFONT_CONFIG) when present,
+// otherwise it attempts to discover a config; if neither provides a release it uses the latest release.
+// It fetches available releases, selects the requested release, and prints a header `# <TagName>`
+// followed by `families:` and each family as `  - <family>`.
+// Returns an error if config loading, discovery, release listing, or release selection fails.
 func printFontNames(
 	ctx context.Context,
 	configPath string,
@@ -203,7 +221,9 @@ func printFontNames(
 }
 
 // noConfigError builds the "no config found" message from the live discovery
-// paths so it stays in sync with DefaultPaths and is correct per-OS.
+// noConfigError returns an error indicating that no configuration was found and suggests how to provide one.
+// The error wraps errNoConfig and includes a hint that recommends passing --config, setting NERDFONT_CONFIG,
+// or creating a config at one of the platform-specific default paths when available.
 func noConfigError() error {
 	hint := fmt.Sprintf("pass --config or set %s", configEnvVar)
 	if paths, err := config.DefaultPaths(); err == nil && len(paths) > 0 {
@@ -212,6 +232,10 @@ func noConfigError() error {
 	return fmt.Errorf("%w; %s", errNoConfig, hint)
 }
 
+// selectRelease selects a release from the provided list that matches the requested tag.
+// If `release` is empty or equals `nerdfonts.Latest`, the first release in the slice is returned.
+// If the slice is empty, `nerdfonts.ErrNoReleases` is returned.
+// If no release with a matching TagName is found, `nerdfonts.ReleaseNotFoundError{Tag: release}` is returned.
 func selectRelease(releases []nerdfonts.Release, release string) (nerdfonts.Release, error) {
 	if len(releases) == 0 {
 		return nerdfonts.Release{}, nerdfonts.ErrNoReleases
@@ -227,6 +251,7 @@ func selectRelease(releases []nerdfonts.Release, release string) (nerdfonts.Rele
 	return nerdfonts.Release{}, nerdfonts.ReleaseNotFoundError{Tag: release}
 }
 
+// mode runs, the function returns errCancelled if the user cancels the TUI.
 func resolveConfig(
 	ctx context.Context,
 	configPath string,

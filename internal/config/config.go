@@ -81,6 +81,10 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// Discover locates and loads the first existing configuration from the default candidate paths.
+// It returns the loaded Source, true and a nil error when a configuration is found;
+// returns false and a nil error when no configuration is discovered;
+// and returns a non-nil error if computing default paths or loading a discovered configuration fails.
 func Discover() (Source, bool, error) {
 	paths, err := DefaultPaths()
 	if err != nil {
