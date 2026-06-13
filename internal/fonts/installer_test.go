@@ -279,6 +279,79 @@ func TestInstallKeepsExistingFamilyDirectoryOnExtractionFailure(t *testing.T) {
 	}
 }
 
+func TestExtractFontZipRejectsOversizeFontFile(t *testing.T) {
+	prev := maxFontFileBytes
+	maxFontFileBytes = 8
+	t.Cleanup(func() { maxFontFileBytes = prev })
+
+	temp := t.TempDir()
+	archivePath := filepath.Join(temp, "font.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("Big.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("this font is larger than the cap")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = ExtractFontZip(archivePath, filepath.Join(temp, "out"))
+	if err == nil {
+		t.Fatal("ExtractFontZip() error = nil, want oversize error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("ExtractFontZip() error = %v, want size-limit error", err)
+	}
+}
+
+func TestExtractFontZipRejectsOversizeArchiveTotal(t *testing.T) {
+	prevFile, prevTotal := maxFontFileBytes, maxArchiveBytes
+	maxFontFileBytes = 1 << 20
+	maxArchiveBytes = 12
+	t.Cleanup(func() { maxFontFileBytes, maxArchiveBytes = prevFile, prevTotal })
+
+	temp := t.TempDir()
+	archivePath := filepath.Join(temp, "font.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for _, name := range []string{"A.ttf", "B.ttf"} {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte("ten bytes!")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = ExtractFontZip(archivePath, filepath.Join(temp, "out"))
+	if err == nil {
+		t.Fatal("ExtractFontZip() error = nil, want total-size error")
+	}
+	if !strings.Contains(err.Error(), "total uncompressed size") {
+		t.Fatalf("ExtractFontZip() error = %v, want total-size error", err)
+	}
+}
+
 func TestInstallReportsDownloadErrors(t *testing.T) {
 	tests := []struct {
 		name      string

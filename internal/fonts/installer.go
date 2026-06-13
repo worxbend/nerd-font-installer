@@ -29,6 +29,15 @@ type Options struct {
 	HTTPClient       *http.Client
 }
 
+// Size caps that bound resource use against an oversized or malicious archive
+// (e.g. a decompression bomb). They are package variables rather than constants
+// so tests can lower them without building multi-megabyte fixtures.
+var (
+	maxDownloadBytes int64 = 200 << 20 // 200 MiB: cap on a single downloaded zip.
+	maxFontFileBytes int64 = 64 << 20  // 64 MiB: cap on one extracted font file.
+	maxArchiveBytes  int64 = 512 << 20 // 512 MiB: cap on total uncompressed bytes.
+)
+
 var (
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
@@ -147,8 +156,17 @@ func installFamily(ctx context.Context, client *http.Client, release, family, ro
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("download %s: %s", url, resp.Status)
 	}
-	if _, err := io.Copy(temp, resp.Body); err != nil {
+	if resp.ContentLength > maxDownloadBytes {
+		return fmt.Errorf("download %s: size %d bytes exceeds %d byte limit", url, resp.ContentLength, maxDownloadBytes)
+	}
+	// LimitReader backstops a missing or dishonest Content-Length; the extra
+	// byte lets us detect a stream that runs past the cap.
+	written, err := io.Copy(temp, io.LimitReader(resp.Body, maxDownloadBytes+1))
+	if err != nil {
 		return fmt.Errorf("copy download %s to %s: %w", url, temp.Name(), err)
+	}
+	if written > maxDownloadBytes {
+		return fmt.Errorf("download %s: exceeds %d byte limit", url, maxDownloadBytes)
 	}
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("finalize download %s: %w", temp.Name(), err)
@@ -194,11 +212,21 @@ func ExtractFontZip(path, destination string) error {
 	}()
 
 	extracted := 0
+	var totalBytes int64
 	for _, file := range archive.File {
 		if file.FileInfo().IsDir() || !isFontFile(file.Name) {
 			continue
 		}
-		if err := extractZipFile(file, filepath.Join(destination, filepath.Base(file.Name))); err != nil {
+		// Reject on the declared size first (cheap, no decompression), then
+		// enforce the same cap on the actual stream during the copy.
+		if file.UncompressedSize64 > uint64(maxFontFileBytes) {
+			return fmt.Errorf("extract %s: font file %s declares %d bytes, exceeds %d byte limit", path, file.Name, file.UncompressedSize64, maxFontFileBytes)
+		}
+		totalBytes += int64(file.UncompressedSize64)
+		if totalBytes > maxArchiveBytes {
+			return fmt.Errorf("extract %s: total uncompressed size exceeds %d byte limit", path, maxArchiveBytes)
+		}
+		if err := extractZipFile(file, filepath.Join(destination, filepath.Base(file.Name)), maxFontFileBytes); err != nil {
 			return fmt.Errorf("extract %s: %w", file.Name, err)
 		}
 		extracted++
@@ -218,7 +246,7 @@ func isFontFile(path string) bool {
 	}
 }
 
-func extractZipFile(file *zip.File, destination string) error {
+func extractZipFile(file *zip.File, destination string, limit int64) error {
 	reader, err := file.Open()
 	if err != nil {
 		return fmt.Errorf("open zipped font %s: %w", file.Name, err)
@@ -238,8 +266,14 @@ func extractZipFile(file *zip.File, destination string) error {
 		_ = out.Close()
 	}()
 
-	if _, err := io.Copy(out, reader); err != nil {
+	// Backstop the declared-size check against a zip entry whose header lies
+	// about UncompressedSize64; the extra byte detects an over-limit stream.
+	written, err := io.Copy(out, io.LimitReader(reader, limit+1))
+	if err != nil {
 		return fmt.Errorf("copy font file %s to %s: %w", file.Name, destination, err)
+	}
+	if written > limit {
+		return fmt.Errorf("font file %s exceeds %d byte limit", file.Name, limit)
 	}
 	if err := out.Sync(); err != nil {
 		return fmt.Errorf("flush font file %s: %w", destination, err)
