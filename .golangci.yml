@@ -13,6 +13,7 @@ linters:
     - errcheck
     - errorlint
     - forcetypeassert
+    - gosec
     - misspell
     - nilerr
     - noctx
@@ -20,6 +21,17 @@ linters:
     - staticcheck
     - unconvert
     - whitespace
+  settings:
+    govet:
+      enable:
+        - shadow
+    gosec:
+      # These tool-specific patterns are intentional and were reviewed:
+      excludes:
+        - G107 # download URL is built from a fontname.Validate'd family/release
+        - G204 # fc-cache is run via exec args (no shell), with a fixed binary
+        - G304 # extraction/temp paths are validated or created by us
+        - G306 # font files are world-readable (0o644) on purpose
   exclusions:
     generated: lax
     paths:
