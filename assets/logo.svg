@@ -1,0 +1,26 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nerd Font Installer logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="160" y2="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="48" y1="34" x2="112" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C7D2FE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded badge -->
+  <rect x="8" y="8" width="144" height="144" rx="34" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="143" height="143" rx="33.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18"/>
+
+  <!-- stylized serif glyph "A" representing a font -->
+  <path d="M80 30 L112 96 H96 L89.5 81 H70.5 L64 96 H48 L80 30 Z M80 53 L74 68 H86 L80 53 Z"
+        fill="url(#glyph)"/>
+
+  <!-- download arrow representing install -->
+  <g stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M80 104 V128"/>
+    <path d="M66 117 L80 131 L94 117"/>
+  </g>
+</svg>

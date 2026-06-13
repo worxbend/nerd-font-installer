@@ -1,7 +1,20 @@
+<div align="center">
+
+<img src="assets/logo.svg" alt="Nerd Font Installer logo" width="140" height="140" />
+
 # Nerd Font Installer
 
-Install your favorite [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts)
-with one small command.
+**Install your favorite [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) with one small command.**
+
+<p>
+  <a href="https://github.com/w0rxbend/nerd-font-installer/releases"><img alt="Release" src="https://img.shields.io/github/v/release/w0rxbend/nerd-font-installer?sort=semver&color=7C3AED&label=release"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-2563EB"></a>
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555">
+  <a href="https://snapcraft.io/nerdfont-install"><img alt="Snap" src="https://img.shields.io/badge/snap-nerdfont--install-82BEA0?logo=snapcraft&logoColor=white"></a>
+</p>
+
+</div>
 
 `nerdfont-install` is for people who set up terminals, editors, dotfiles, new
 laptops, remote dev boxes, or fresh Linux/macOS machines and do not want to
