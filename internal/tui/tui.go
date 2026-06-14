@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -36,67 +37,170 @@ const (
 	stepDone
 )
 
+// Neon / synthwave palette. Colors are true-color hex; lipgloss + termenv
+// downsample them to whatever the terminal actually supports, so they stay
+// safe on 256-color and 16-color terminals too.
+const (
+	cPink    = "#FF5FAF"
+	cMagenta = "#C75CFF"
+	cViolet  = "#8A7CFF"
+	cBlue    = "#5BA8FF"
+	cCyan    = "#46E5E0"
+	cMint    = "#5BF0B8"
+	cText    = "#EDEDF7"
+	cMuted   = "#A2A2BE"
+	cFaint   = "#595972"
+	cAmber   = "#FFC857"
+	cGreen   = "#54E08A"
+	cRed     = "#FF5C7A"
+	cInk     = "#13131F"
+	cPanelHi = "#2E2A57"
+	cDescHi  = "#CFCBF2"
+)
+
+// brandRamp is the left-to-right gradient used for the wordmark, rules and the
+// progress bar fill. See gradientText.
+var brandRamp = []string{cPink, cMagenta, cViolet, cCyan, cMint}
+
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("231"))
-	logoMarkStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("213"))
-	logoTextStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("86"))
+			Foreground(lipgloss.Color(cText))
 	bannerStyle = lipgloss.NewStyle().
-			Bold(true).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("57")).
+			BorderForeground(lipgloss.Color(cViolet)).
 			Padding(1, 2)
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250"))
+			Foreground(lipgloss.Color(cMuted)).
+			Italic(true)
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+			Foreground(lipgloss.Color(cFaint))
 	keyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
+			Foreground(lipgloss.Color(cCyan)).
 			Bold(true)
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196"))
+			Foreground(lipgloss.Color(cRed)).
+			Bold(true)
 	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
+			Foreground(lipgloss.Color(cGreen)).
 			Bold(true)
 	accentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("81")).
+			Foreground(lipgloss.Color(cCyan)).
 			Bold(true)
-	accentAltStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("213")).
-			Bold(true)
-	pillStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("232")).
-			Background(lipgloss.Color("220")).
-			Bold(true).
-			Padding(0, 1)
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("238")).
+			BorderForeground(lipgloss.Color(cFaint)).
 			Padding(1, 2)
 	activePanelStyle = panelStyle.
-				BorderForeground(lipgloss.Color("81"))
+				BorderForeground(lipgloss.Color(cCyan))
 	sidePanelStyle = panelStyle.
-			BorderForeground(lipgloss.Color("99"))
-	panelTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("220")).
-			Bold(true)
+			BorderForeground(lipgloss.Color(cViolet))
 	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
+			Foreground(lipgloss.Color(cMuted)).
 			Bold(true)
 	valueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231"))
+			Foreground(lipgloss.Color(cText))
 	progressTrackStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("238"))
-	progressFillStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("86"))
+				Foreground(lipgloss.Color(cFaint))
 	spinnerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("63"))
+			Foreground(lipgloss.Color(cCyan))
+
+	// badges are the small filled pills in the banner meta row.
+	badgePkg = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(cInk)).
+			Background(lipgloss.Color(cPink)).
+			Bold(true).
+			Padding(0, 1)
+	badgeFont = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(cInk)).
+			Background(lipgloss.Color(cCyan)).
+			Bold(true).
+			Padding(0, 1)
+	badgeLaunch = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(cInk)).
+			Background(lipgloss.Color(cMint)).
+			Bold(true).
+			Padding(0, 1)
+
+	// breadcrumb styles for the release › families › install stepper.
+	crumbActive = lipgloss.NewStyle().Foreground(lipgloss.Color(cCyan)).Bold(true)
+	crumbDone   = lipgloss.NewStyle().Foreground(lipgloss.Color(cGreen))
+	crumbTodo   = lipgloss.NewStyle().Foreground(lipgloss.Color(cFaint))
+	crumbSep    = lipgloss.NewStyle().Foreground(lipgloss.Color(cFaint))
 )
+
+// gradientText paints s across the given color stops, interpolating per rune so
+// a short word still shows the full sweep. ANSI styling is applied per rune; the
+// underlying glyphs stay intact, so substring checks on the rendered string
+// (single glyphs) still match.
+func gradientText(s string, stops []string) string {
+	runes := []rune(s)
+	n := len(runes)
+	if n == 0 || len(stops) == 0 {
+		return s
+	}
+	if len(stops) == 1 || n == 1 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(stops[0])).Render(s)
+	}
+
+	var b strings.Builder
+	for i, r := range runes {
+		t := float64(i) / float64(n-1)
+		color := lipgloss.Color(rampColor(stops, t))
+		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(r)))
+	}
+	return b.String()
+}
+
+// rampColor returns the hex color at position t in [0,1] along stops.
+func rampColor(stops []string, t float64) string {
+	switch {
+	case t <= 0:
+		return stops[0]
+	case t >= 1:
+		return stops[len(stops)-1]
+	}
+	seg := t * float64(len(stops)-1)
+	i := int(seg)
+	return lerpHex(stops[i], stops[i+1], seg-float64(i))
+}
+
+// lerpHex linearly interpolates between two "#RRGGBB" colors.
+func lerpHex(a, b string, t float64) string {
+	ar, ag, ab := hexRGB(a)
+	br, bg, bb := hexRGB(b)
+	lerp := func(x, y int) int { return x + int(float64(y-x)*t+0.5) }
+	return fmt.Sprintf("#%02X%02X%02X", lerp(ar, br), lerp(ag, bg), lerp(ab, bb))
+}
+
+func hexRGB(h string) (int, int, int) {
+	h = strings.TrimPrefix(h, "#")
+	if len(h) != 6 {
+		return 255, 255, 255
+	}
+	r, _ := strconv.ParseInt(h[0:2], 16, 0)
+	g, _ := strconv.ParseInt(h[2:4], 16, 0)
+	b, _ := strconv.ParseInt(h[4:6], 16, 0)
+	return int(r), int(g), int(b)
+}
+
+// gradientRule draws a full-width horizontal rule in the brand gradient.
+func gradientRule(width int) string {
+	if width < 1 {
+		return ""
+	}
+	return gradientText(strings.Repeat("─", width), brandRamp)
+}
+
+// spread places left and right on one line of the given width, pushing right to
+// the far edge. It falls back to a single-space join when there is no room.
+func spread(width int, left, right string) string {
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		return left + " " + right
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
 
 const (
 	IconAuto    IconMode = "auto"
@@ -183,7 +287,7 @@ func LoadReleases(
 	output io.Writer,
 ) ([]nerdfonts.Release, error) {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = spinner.MiniDot
 	s.Style = spinnerStyle
 
 	programOptions := []tea.ProgramOption{
@@ -234,7 +338,7 @@ func (m loadingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = errorStyle.Render(msg.err.Error())
 			return m, tea.Quit
 		}
-		m.message = successStyle.Render("OK  Releases loaded")
+		m.message = successStyle.Render("✓ Releases loaded")
 		return m, tea.Quit
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -246,7 +350,8 @@ func (m loadingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m loadingModel) View() string {
-	return fmt.Sprintf("%s %s\n", m.spinner.View(), accentStyle.Render(m.message))
+	brand := gradientText("✦ nerdfont-install", brandRamp)
+	return fmt.Sprintf("\n  %s\n  %s %s\n", brand, spinnerStyle.Render(m.spinner.View()), accentStyle.Render(m.message))
 }
 
 func Run(ctx context.Context, releases []nerdfonts.Release, opts Options) (Result, error) {
@@ -482,22 +587,22 @@ func configureList(model *list.Model, singular, plural string) {
 	model.SetShowHelp(false)
 	model.DisableQuitKeybindings()
 	model.Styles.Title = model.Styles.Title.
-		Foreground(lipgloss.Color("232")).
-		Background(lipgloss.Color("86")).
+		Foreground(lipgloss.Color(cInk)).
+		Background(lipgloss.Color(cCyan)).
 		Bold(true).
 		Padding(0, 1)
 	model.Styles.TitleBar = model.Styles.TitleBar.
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(lipgloss.Color(cFaint)).
 		PaddingBottom(1)
 	model.Styles.StatusBar = model.Styles.StatusBar.
-		Foreground(lipgloss.Color("244")).
+		Foreground(lipgloss.Color(cMuted)).
 		PaddingTop(1)
 	model.Styles.StatusBarActiveFilter = model.Styles.StatusBarActiveFilter.
-		Foreground(lipgloss.Color("220")).
+		Foreground(lipgloss.Color(cAmber)).
 		Bold(true)
 	model.Styles.StatusBarFilterCount = model.Styles.StatusBarFilterCount.
-		Foreground(lipgloss.Color("213"))
+		Foreground(lipgloss.Color(cPink))
 	model.Styles.PaginationStyle = helpStyle
 	model.Styles.HelpStyle = helpStyle
 }
@@ -522,19 +627,20 @@ func newDelegate() list.DefaultDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.SetSpacing(1)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("231")).
-		BorderForeground(lipgloss.Color("213")).
-		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color(cText)).
+		BorderForeground(lipgloss.Color(cPink)).
+		Background(lipgloss.Color(cPanelHi)).
 		Bold(true)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("225")).
-		BorderForeground(lipgloss.Color("213"))
+		Foreground(lipgloss.Color(cDescHi)).
+		BorderForeground(lipgloss.Color(cPink)).
+		Background(lipgloss.Color(cPanelHi))
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
-		Foreground(lipgloss.Color("252")).
+		Foreground(lipgloss.Color(cText)).
 		Bold(true)
-	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(lipgloss.Color("246"))
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(lipgloss.Color(cMuted))
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.
-		Foreground(lipgloss.Color("220")).
+		Foreground(lipgloss.Color(cAmber)).
 		Underline(true).
 		Bold(true)
 	return delegate
@@ -628,12 +734,15 @@ func (m model) familiesView() string {
 
 func (m model) doneView() string {
 	header := m.banner("Ready to install", fmt.Sprintf("%d families selected", m.selectedCount()))
-	body := activePanelStyle.Width(m.bodyWidth() - 6).Render(strings.Join([]string{
+	bodyWidth := m.bodyWidth() - 6
+	body := activePanelStyle.Width(bodyWidth).Render(strings.Join([]string{
 		successStyle.Render(m.icons.Ready + "  Selection locked in"),
-		"",
+		gradientRule(bodyWidth - 4),
 		statLine(m.icons.Release, "Release", m.selectedRelease.TagName),
 		statLine(m.icons.Folder, "Destination", m.destination),
 		statLine(m.icons.Selected, "Families", fmt.Sprintf("%d", m.selectedCount())),
+		"",
+		gradientText(m.icons.Launch+"  Launching the installer…", brandRamp),
 	}, "\n"))
 	return m.screen(header, body, help("enter", "continue"))
 }
@@ -651,20 +760,48 @@ func (m model) screenBody(listView, preview string) string {
 }
 
 func (m model) banner(stepLabel, detail string) string {
-	logo := logoMarkStyle.Render(m.logo()) + "  " + logoTextStyle.Render("nerdfont-install")
+	boxWidth := m.bodyWidth() - 6
+	textWidth := boxWidth - 4 // account for the banner's horizontal padding
+
+	wordmark := gradientText(m.logo()+"  nerdfont-install", brandRamp)
+	header := wordmark
+	if m.wideLayout() {
+		header = spread(textWidth, wordmark, m.breadcrumb())
+	}
+
 	title := titleStyle.Render(stepLabel)
 	meta := strings.Join([]string{
-		pillStyle.Render(m.icons.Package + " CLI"),
-		accentStyle.Render(m.icons.Font + " patched glyphs"),
-		accentAltStyle.Render(m.icons.Launch + " terminal-ready"),
-	}, "  ")
+		badgePkg.Render(m.icons.Package + " CLI"),
+		badgeFont.Render(m.icons.Font + " patched glyphs"),
+		badgeLaunch.Render(m.icons.Launch + " terminal-ready"),
+	}, " ")
 	lines := []string{
-		logo,
+		header,
+		gradientRule(textWidth),
 		title,
 		subtitleStyle.Render(detail),
 		meta,
 	}
-	return bannerStyle.Width(m.bodyWidth() - 6).Render(strings.Join(lines, "\n"))
+	return bannerStyle.Width(boxWidth).Render(strings.Join(lines, "\n"))
+}
+
+// breadcrumb renders the release › families › install stepper, highlighting the
+// current step and marking completed ones.
+func (m model) breadcrumb() string {
+	labels := []string{"release", "families", "install"}
+	current := int(m.step)
+	parts := make([]string, len(labels))
+	for i, label := range labels {
+		switch {
+		case i == current:
+			parts[i] = crumbActive.Render("◉ " + label)
+		case i < current:
+			parts[i] = crumbDone.Render("✓ " + label)
+		default:
+			parts[i] = crumbTodo.Render("○ " + label)
+		}
+	}
+	return strings.Join(parts, crumbSep.Render(" › "))
 }
 
 func (m model) logo() string {
@@ -676,10 +813,16 @@ func (m model) logo() string {
 	}
 }
 
+// panelTitle renders a side-panel heading with a brand-colored accent bar and a
+// gradient label.
+func panelTitle(label string) string {
+	return accentStyle.Render("▌") + " " + gradientText(label, brandRamp)
+}
+
 func (m model) releasePreview() string {
 	release := m.currentRelease()
 	lines := []string{
-		panelTitleStyle.Render(m.icons.Package + " Release cockpit"),
+		panelTitle(m.icons.Package + " Release cockpit"),
 		"",
 		statLine(m.icons.Release, "Current", release.TagName),
 		statLine(m.icons.Font, "Archives", fmt.Sprintf("%d", len(release.Families))),
@@ -694,7 +837,7 @@ func (m model) familyPreview() string {
 	total := len(m.selectedRelease.Families)
 	selected := m.selectedCount()
 	lines := []string{
-		panelTitleStyle.Render(m.icons.Title + " Install plan"),
+		panelTitle(m.icons.Title + " Install plan"),
 		"",
 		statLine(m.icons.Release, "Release", m.selectedRelease.TagName),
 		statLine(m.icons.Folder, "Destination", m.destination),
@@ -720,7 +863,7 @@ func (m model) currentRelease() nerdfonts.Release {
 }
 
 func (m model) progressBar(selected, total int) string {
-	const cells = 22
+	const cells = 24
 	filled := 0
 	if total > 0 {
 		filled = selected * cells / total
@@ -728,9 +871,9 @@ func (m model) progressBar(selected, total int) string {
 	if filled > cells {
 		filled = cells
 	}
-	bar := progressFillStyle.Render(strings.Repeat("━", filled)) +
-		progressTrackStyle.Render(strings.Repeat("━", cells-filled))
-	return bar + "  " + accentStyle.Render(fmt.Sprintf("%d%%", percentage(selected, total)))
+	bar := gradientText(strings.Repeat("█", filled), brandRamp) +
+		progressTrackStyle.Render(strings.Repeat("░", cells-filled))
+	return bar + "  " + accentStyle.Render(fmt.Sprintf("%3d%%", percentage(selected, total)))
 }
 
 func percentage(selected, total int) int {
