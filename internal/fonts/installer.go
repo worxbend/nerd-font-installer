@@ -50,9 +50,9 @@ type Options struct {
 // (e.g. a decompression bomb). They are package variables rather than constants
 // so tests can lower them without building multi-megabyte fixtures.
 var (
-	maxDownloadBytes int64 = 200 << 20 // 200 MiB: cap on a single downloaded zip.
-	maxFontFileBytes int64 = 64 << 20  // 64 MiB: cap on one extracted font file.
-	maxArchiveBytes  int64 = 512 << 20 // 512 MiB: cap on total uncompressed bytes.
+	maxDownloadBytes int64 = 768 << 20 // 768 MiB: cap on a single downloaded zip.
+	maxFontFileBytes int64 = 128 << 20 // 128 MiB: cap on one extracted font file.
+	maxArchiveBytes  int64 = 2 << 30   // 2 GiB: cap on total uncompressed bytes.
 )
 
 var (

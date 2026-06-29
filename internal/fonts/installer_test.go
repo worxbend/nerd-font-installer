@@ -820,6 +820,17 @@ func TestInstallDeduplicatesFamilies(t *testing.T) {
 	}
 }
 
+func TestDefaultSizeCapsAllowKnownLargeNotoArchive(t *testing.T) {
+	const knownNotoZipBytes int64 = 601_124_599
+
+	if maxDownloadBytes < knownNotoZipBytes {
+		t.Fatalf("maxDownloadBytes = %d, want at least known Noto.zip size %d", maxDownloadBytes, knownNotoZipBytes)
+	}
+	if maxArchiveBytes < maxDownloadBytes {
+		t.Fatalf("maxArchiveBytes = %d, want at least download cap %d", maxArchiveBytes, maxDownloadBytes)
+	}
+}
+
 // Boundary: download that exceeds maxDownloadBytes via Content-Length header.
 func TestInstallRejectsOversizeDownloadViaContentLength(t *testing.T) {
 	prev := maxDownloadBytes
